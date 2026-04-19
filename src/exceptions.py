@@ -26,3 +26,13 @@ class LocationNotFoundError(APIError):
     This is a subclass of :class:`APIError` so callers that broadly catch
     ``APIError`` still handle bad-coordinate failures.
     """
+
+
+class CityNotFoundError(APIError):
+    """Raised when a city name cannot be resolved by the geocoding API.
+
+    This is a subclass of :class:`APIError` so callers that broadly catch
+    ``APIError`` still handle unknown-city failures. It is raised both when
+    the geocoding service returns zero results and when the response payload
+    is structurally valid but contains no usable match.
+    """

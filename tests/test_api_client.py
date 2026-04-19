@@ -10,8 +10,14 @@ import httpx
 import pytest
 import respx
 
-from src.api_client import OPEN_METEO_URL, CurrentWeather, WeatherClient
-from src.exceptions import APIError, LocationNotFoundError
+from src.api_client import (
+    OPEN_METEO_GEOCODING_URL,
+    OPEN_METEO_URL,
+    CurrentWeather,
+    Location,
+    WeatherClient,
+)
+from src.exceptions import APIError, CityNotFoundError, LocationNotFoundError
 
 
 @pytest.fixture
@@ -203,3 +209,191 @@ async def test_malformed_current_weather_fields_raise_api_error() -> None:
     async with WeatherClient() as client:
         with pytest.raises(APIError, match="malformed field"):
             await client.fetch_current_weather(52.52, 13.42)
+
+
+# ---------------------------------------------------------------------------
+# Geocoding tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def geocoding_payload() -> Dict[str, Any]:
+    """A representative Open-Meteo geocoding response for ``Berlin``."""
+    return {
+        "results": [
+            {
+                "id": 2950159,
+                "name": "Berlin",
+                "latitude": 52.52437,
+                "longitude": 13.41053,
+                "country": "Germany",
+                "admin1": "Land Berlin",
+                "timezone": "Europe/Berlin",
+            }
+        ],
+        "generationtime_ms": 0.5,
+    }
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_geocode_city_returns_parsed_location(
+    geocoding_payload: Dict[str, Any],
+) -> None:
+    route = respx.get(OPEN_METEO_GEOCODING_URL).mock(
+        return_value=httpx.Response(200, json=geocoding_payload)
+    )
+
+    async with WeatherClient() as client:
+        location = await client.geocode_city("Berlin")
+
+    assert route.called
+    request = route.calls.last.request
+    assert request.url.params["name"] == "Berlin"
+    assert request.url.params["count"] == "1"
+
+    assert location == Location(
+        latitude=52.52437,
+        longitude=13.41053,
+        name="Berlin, Land Berlin, Germany",
+    )
+    # display_name is an alias used for terminal rendering.
+    assert location.display_name == "Berlin, Land Berlin, Germany"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_geocode_city_feeds_into_fetch_current_weather(
+    geocoding_payload: Dict[str, Any],
+    sample_payload: Dict[str, Any],
+) -> None:
+    """Coordinates from geocoding can be handed to the weather endpoint."""
+    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+        return_value=httpx.Response(200, json=geocoding_payload)
+    )
+    weather_route = respx.get(OPEN_METEO_URL).mock(
+        return_value=httpx.Response(200, json=sample_payload)
+    )
+
+    async with WeatherClient() as client:
+        location = await client.geocode_city("Berlin")
+        weather = await client.fetch_current_weather(
+            location.latitude, location.longitude
+        )
+
+    assert weather_route.called
+    assert weather.temperature == 13.4
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_geocode_city_empty_results_raises_city_not_found() -> None:
+    """Zero results from the geocoding API raises ``CityNotFoundError``."""
+    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+        return_value=httpx.Response(200, json={"generationtime_ms": 0.1}),
+    )
+
+    async with WeatherClient() as client:
+        with pytest.raises(CityNotFoundError) as excinfo:
+            await client.geocode_city("Xyznowhere")
+
+    assert "Xyznowhere" in str(excinfo.value)
+    # Must also be catchable as APIError for broad handlers.
+    assert isinstance(excinfo.value, APIError)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_geocode_city_empty_results_list_raises_city_not_found() -> None:
+    """An explicit empty ``results`` list also raises ``CityNotFoundError``."""
+    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+        return_value=httpx.Response(200, json={"results": []}),
+    )
+
+    async with WeatherClient() as client:
+        with pytest.raises(CityNotFoundError):
+            await client.geocode_city("Nowhereville")
+
+
+@pytest.mark.asyncio
+async def test_geocode_city_empty_name_raises_city_not_found() -> None:
+    """An empty or whitespace-only name never touches the network."""
+    async with WeatherClient() as client:
+        with pytest.raises(CityNotFoundError):
+            await client.geocode_city("   ")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_geocode_city_malformed_json_raises_api_error() -> None:
+    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+        return_value=httpx.Response(200, text="<html>not json</html>"),
+    )
+
+    async with WeatherClient() as client:
+        with pytest.raises(APIError, match="invalid JSON"):
+            await client.geocode_city("Berlin")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_geocode_city_malformed_result_entry_raises_api_error() -> None:
+    """A result entry missing required fields raises ``APIError``."""
+    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={"results": [{"name": "Berlin"}]},  # missing lat/long
+        ),
+    )
+
+    async with WeatherClient() as client:
+        with pytest.raises(APIError, match="missing or malformed field"):
+            await client.geocode_city("Berlin")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_geocode_city_non_dict_result_entry_raises_api_error() -> None:
+    """A ``results`` list whose first entry is not a dict raises ``APIError``."""
+    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={"results": ["not-a-dict"]},
+        ),
+    )
+
+    async with WeatherClient() as client:
+        with pytest.raises(APIError, match="malformed result entry"):
+            await client.geocode_city("Berlin")
+        # Must not be the narrower CityNotFoundError - results is non-empty.
+        # (Separate assertion for clarity; see test above for empty case.)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_geocode_city_server_error_raises_api_error() -> None:
+    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+        return_value=httpx.Response(503, text="Service Unavailable"),
+    )
+
+    async with WeatherClient() as client:
+        with pytest.raises(APIError) as excinfo:
+            await client.geocode_city("Berlin")
+
+    assert excinfo.value.status_code == 503
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_geocode_city_network_error_is_wrapped_as_api_error() -> None:
+    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+        side_effect=httpx.ConnectTimeout("timeout"),
+    )
+
+    async with WeatherClient() as client:
+        with pytest.raises(APIError) as excinfo:
+            await client.geocode_city("Berlin")
+
+    assert "Network error" in str(excinfo.value)
+    assert excinfo.value.status_code is None
+    assert isinstance(excinfo.value.__cause__, httpx.ConnectTimeout)
