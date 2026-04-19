@@ -1,942 +1,1036 @@
- ▐▛███▜▌   Claude Code v2.1.105
-▝▜█████▛▘  Opus 4.6 · API Usage Billing
-  ▘▘ ▝▝    ~/.cache/claude-hfi/-mnt-e-align-weather-cli/B
+  empty-name guard, missing results key, empty results list, malformed JSON, malformed result entry, 5xx
+  server error, network timeout wrapping, and an end-to-end geocode→weather chain proving the coordinates
+   flow into fetch_current_weather.
 
-  Debug mode enabled
-  Logging to: /tmp/claude-hfi/72beed1e-d066-4757-98e5-3718ef8f0efe/debug.txt
+  18/18 tests pass; black + flake8 clean.
 
-❯ The weather CLI project needs an async API client that fetches current weather data by latitude and
-  longitude from the Open-Meteo API. API failures should surface in a structured, catchable way rather
-  than letting raw HTTP exceptions leak through. Add a test suite with proper mocking of HTTP
-  interactions and no real API calls. Cover both the happy path and meaningful failure scenarios. Check
-  the CLAUDE.md for project conventions before starting.
+❯ The _acquire_client helper returns a raw tuple forcing every caller to duplicate try/finally cleanup
+  logic which undermines the refactoring benefit. Convert it into an async context manager so both
+  geocode_city and fetch_current_weather use a clean async with block for client lifecycle. The module
+  docstring still reads 'Async client for the Open-Meteo weather API' but geocoding support was added so
+   that needs updating. There is also a missing test case for when the geocoding results list contains a
+   non-dict entry, that edge case should be covered in the test suite.
 
-● I'll start by reading the CLAUDE.md and understanding the project structure.
-
-  Read 3 files, listed 2 directories (ctrl+o to expand)
-
-● Now I have a clear picture. The project uses httpx.AsyncClient + respx for mocking, needs custom
-  exceptions in src/exceptions.py, and requires strict type hints. Let me check the requirements.txt
-  format and install dependencies.
-
-  Read 1 file (ctrl+o to expand)
-
-● The requirements.txt has literal \n instead of actual newlines. I need to fix that before installing.
-  Let me fix it and then build the implementation.
-
-● Update(requirements.txt)
-  ⎿  Added 5 lines, removed 1 line
-      1 -httpx\nrich\npytest\npytest-asyncio\nrespx
-      1 +httpx
-      2 +rich
-      3 +pytest
-      4 +pytest-asyncio
-      5 +respx
-
-● Bash(source venv/bin/activate && pip install -r requirements.txt -q 2>&1 | tail -5)
-  ⎿  (No output)
-
-● Good, dependencies installed. Now let me create the three files.
-
-  Read 1 file (ctrl+o to expand)
-
-● Empty file. Let me create the implementation files.
-
-  Read 3 files (ctrl+o to expand)
-
-● Now let me run the tests:
-
-● Bash(source venv/bin/activate && pytest tests/ -v 2>&1)
-  ⎿  ============================= test session starts ==============================
-     platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/asura/.cache/claude-hfi/-m
-     nt-e-align-weather-cli/B/venv/bin/python3
-     … +14 lines (ctrl+o to expand)
-
-● All 5 tests pass. Let me also run the linter and formatter per the CLAUDE.md workflow:
-
-● Bash(source venv/bin/activate && black src tests 2>&1 && flake8 src tests 2>&1)
-  ⎿  Error: Exit code 1
-     reformatted /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/weather_client.py
-     reformatted /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/tests/test_weather_client.py
-
-     All done! ✨ 🍰 ✨
-     2 files reformatted, 3 files left unchanged.
-     src/weather_client.py:10:80: E501 line too long (83 > 79 characters)
-     src/weather_client.py:35:80: E501 line too long (84 > 79 characters)
-     tests/test_weather_client.py:24:80: E501 line too long (84 > 79 characters)
-     tests/test_weather_client.py:50:80: E501 line too long (82 > 79 characters)
-     … +1 line (ctrl+o to see all)
-
-● Black reformatted, but flake8 flags some long lines. Let me fix those.
+● Let me read the current state of the files after the black reformatting.
 
   Read 2 files (ctrl+o to expand)
 
-● Update(src/weather_client.py)
-  ⎿  Added 3 lines, removed 1 line
-       7  BASE_URL = "https://api.open-meteo.com/v1/forecast"
-       8
-       9
-      10 -async def get_current_weather(latitude: float, longitude: float) -> dict[str, Any]:
-      10 +async def get_current_weather(
-      11 +    latitude: float, longitude: float
-      12 +) -> dict[str, Any]:
-      13      """Fetch current weather data from Open-Meteo for the given coordinates.
-      14
-      15      Returns the ``current_weather`` object from the API response.
+● Three changes: (1) convert _acquire_client to an async context manager, (2) update module docstring,
+  (3) add the missing non-dict result entry test.
 
-● Update(src/weather_client.py)
-  ⎿  Added 4 lines, removed 1 line
-      34
-      35      if response.status_code != 200:
-      36          raise WeatherAPIError(
-      37 -            message=f"Weather API returned {response.status_code}: {response.text}",
-      37 +            message=(
-      38 +                f"Weather API returned "
-      39 +                f"{response.status_code}: {response.text}"
-      40 +            ),
-      41              status_code=response.status_code,
-      42          )
-      43
+● Update(src/api_client.py)
+  ⎿  Added 3 lines, removed 3 lines
+      1 -"""Async client for the Open-Meteo weather API."""
+      1 +"""Async client for the Open-Meteo weather and geocoding APIs."""
+      2
+      3 +from contextlib import asynccontextmanager
+      4  from dataclasses import dataclass
+      4 -from types import TracebackType
+      5 -from typing import Any, Dict, List, Optional, Tuple, Type
+      5 +from typing import Any, AsyncIterator, Dict, List, Optional, Type
+      6
+      7  import httpx
+      8
 
-● Update(tests/test_weather_client.py)
-  ⎿  Added 3 lines, removed 1 line
-      21  @pytest.mark.asyncio
-      22  @respx.mock
-      23  async def test_get_current_weather_success() -> None:
-      24 -    respx.get(BASE_URL).mock(return_value=httpx.Response(200, json=SAMPLE_RESPONSE))
-      24 +    respx.get(BASE_URL).mock(
-      25 +        return_value=httpx.Response(200, json=SAMPLE_RESPONSE)
-      26 +    )
-      27
-      28      result = await get_current_weather(latitude=52.52, longitude=13.41)
-      29
+● I removed TracebackType and Tuple — need to check __aexit__ still has what it needs. TracebackType is
+  from types, which I just removed from imports. Let me re-add it.
 
-● Update(tests/test_weather_client.py)
-  ⎿  Added 3 lines, removed 1 line
-      49  @pytest.mark.asyncio
-      50  @respx.mock
-      51  async def test_get_current_weather_bad_request() -> None:
-      52 -    respx.get(BASE_URL).mock(return_value=httpx.Response(400, text="Bad Request"))
-      52 +    respx.get(BASE_URL).mock(
-      53 +        return_value=httpx.Response(400, text="Bad Request")
-      54 +    )
-      55
-      56      with pytest.raises(WeatherAPIError) as exc_info:
-      57          await get_current_weather(latitude=999.0, longitude=999.0)
+● Update(src/api_client.py)
+  ⎿  Added 1 line
+      2
+      3  from contextlib import asynccontextmanager
+      4  from dataclasses import dataclass
+      5 +from types import TracebackType
+      6  from typing import Any, AsyncIterator, Dict, List, Optional, Type
+      7
+      8  import httpx
 
-● Update(tests/test_weather_client.py)
-  ⎿  Added 3 lines, removed 1 line
-      62  @pytest.mark.asyncio
-      63  @respx.mock
-      64  async def test_get_current_weather_connection_error() -> None:
-      65 -    respx.get(BASE_URL).mock(side_effect=httpx.ConnectError("Connection refused"))
-      65 +    respx.get(BASE_URL).mock(
-      66 +        side_effect=httpx.ConnectError("Connection refused")
-      67 +    )
-      68
-      69      with pytest.raises(APIConnectionError) as exc_info:
-      70          await get_current_weather(latitude=52.52, longitude=13.41)
+● Now replace _acquire_client with an async context manager and update both callers.
 
-● Now re-run the full check:
+● Update(src/api_client.py)
+  ⎿  Added 14 lines, removed 25 lines
+      104              APIError: For any other failure - network errors, non-2xx
+      105                  responses, or payloads that cannot be parsed.
+      106          """
+      107 -        client, close_after = self._acquire_client()
+      108 -
+      109 -        params: Dict[str, Any] = {
+      110 -            "latitude": latitude,
+      111 -            "longitude": longitude,
+      112 -            "current_weather": "true",
+      113 -        }
+      114 -
+      115 -        try:
+      107 +        async with self._request_client() as client:
+      108              try:
+      109                  response: httpx.Response = await client.get(
+      110                      self._base_url, params=params
+     ...
+      140                  raise APIError("Weather API returned an unexpected JSON structure")
+      141
+      142              return _parse_current_weather(payload)
+      151 -        finally:
+      152 -            if close_after:
+      153 -                await client.aclose()
+      143
+      155 -    def _acquire_client(self) -> Tuple[httpx.AsyncClient, bool]:
+      156 -        """Return ``(client, close_after)`` for a single request.
+      144 +    @asynccontextmanager
+      145 +    async def _request_client(self) -> AsyncIterator[httpx.AsyncClient]:
+      146 +        """Yield an ``httpx.AsyncClient`` for a single request.
+      147
+      148          If the instance owns a persistent client (via ``async with``), that
+      159 -        is returned and ``close_after`` is ``False``. Otherwise a transient
+      160 -        ``httpx.AsyncClient`` is created and the caller is expected to close
+      161 -        it when done.
+      149 +        client is yielded directly. Otherwise a transient client is created
+      150 +        and closed when the block exits.
+      151          """
+      152          if self._client is not None:
+      164 -            return self._client, False
+      165 -        return httpx.AsyncClient(timeout=self._timeout), True
+      153 +            yield self._client
+      154 +        else:
+      155 +            transient = httpx.AsyncClient(timeout=self._timeout)
+      156 +            try:
+      157 +                yield transient
+      158 +            finally:
+      159 +                await transient.aclose()
+      160
+      161      async def geocode_city(self, city: str) -> Location:
+      162          """Resolve a ``city`` name to a :class:`Location`.
+     ...
+      177          if not city or not city.strip():
+      178              raise CityNotFoundError("City name must be a non-empty string")
+      179
+      186 -        client, close_after = self._acquire_client()
+      187 -
+      180          params: Dict[str, Any] = {
+      181              "name": city,
+      182              "count": 1,
+      183              "format": "json",
+      184          }
+      185
+      194 -        try:
+      186 +        async with self._request_client() as client:
+      187              try:
+      188                  response: httpx.Response = await client.get(
+      189                      self._geocoding_url, params=params
+     ...
+      212                  raise APIError("Geocoding API returned an unexpected JSON structure")
+      213
+      214              return _parse_geocoding_result(payload, city)
+      223 -        finally:
+      224 -            if close_after:
+      225 -                await client.aclose()
+      215
+      216
+      217  def _extract_error_reason(response: httpx.Response) -> Optional[str]:
 
-● Bash(source venv/bin/activate && black --check src tests 2>&1 && flake8 src tests 2>&1 && pytest tests/
-       -v 2>&1)
+● Now add the missing test for non-dict result entries.
+
+● Update(tests/test_api_client.py)
+  ⎿  Added 16 lines
+      337
+      338  @pytest.mark.asyncio
+      339  @respx.mock
+      340 +async def test_geocode_city_non_dict_result_entry_raises_api_error() -> None:
+      341 +    """A results list containing a non-dict entry raises ``APIError``."""
+      342 +    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+      343 +        return_value=httpx.Response(
+      344 +            200,
+      345 +            json={"results": ["not-a-dict"]},
+      346 +        ),
+      347 +    )
+      348 +
+      349 +    async with WeatherClient() as client:
+      350 +        with pytest.raises(APIError, match="malformed result entry"):
+      351 +            await client.geocode_city("Berlin")
+      352 +
+      353 +
+      354 +@pytest.mark.asyncio
+      355 +@respx.mock
+      356  async def test_geocode_city_malformed_result_entry_raises_api_error() -> None:
+      357      """A result entry missing required fields raises ``APIError``."""
+      358      respx.get(OPEN_METEO_GEOCODING_URL).mock(
+
+● Bash(source venv/bin/activate && python -m pytest tests/ -v 2>&1)
   ⎿  Error: Exit code 1
-     would reformat /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/weather_client.py
-     would reformat /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/tests/test_weather_client.py
+     ============================= test session starts ==============================
+     platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 --
+     /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/venv/bin/python
+     cachedir: .pytest_cache
+     rootdir: /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B
+     plugins: respx-0.23.1, anyio-4.13.0, asyncio-1.3.0
+     asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None,
+     asyncio_default_test_loop_scope=function
+     collecting ... collected 19 items
 
-     Oh no! 💥 💔 💥
-     2 files would be reformatted, 3 files would be left unchanged.
+     tests/test_api_client.py::test_fetch_current_weather_returns_parsed_result FAILED [  5%]
+     … +190 lines (ctrl+o to see all)
 
-● Black wants to reformat. Let me run black first, then check with flake8:
-
-● Bash(source venv/bin/activate && black src tests 2>&1)
-  ⎿  reformatted /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/weather_client.py
-     reformatted /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/tests/test_weather_client.
-     py
-     … +3 lines (ctrl+o to expand)
-
-● Bash(source venv/bin/activate && flake8 src tests 2>&1)
-  ⎿  Error: Exit code 1
-     src/weather_client.py:10:80: E501 line too long (83 > 79 characters)
-     src/weather_client.py:36:80: E501 line too long (83 > 79 characters)
-     tests/test_weather_client.py:24:80: E501 line too long (84 > 79 characters)
-     tests/test_weather_client.py:50:80: E501 line too long (82 > 79 characters)
-     tests/test_weather_client.py:61:80: E501 line too long (82 > 79 characters)
-
-● Black and flake8 conflict on line length (black defaults to 88, flake8 to 79). I'll add a
-  pyproject.toml to align them, then fix the remaining lines.
+● The params dict got placed outside the async with block but the reference moved inside. The params
+  definition ended up above the async with but the old line referencing it was preserved. Let me check
+  the current state.
 
   Read 1 file (ctrl+o to expand)
 
-● Bash(source venv/bin/activate && black src tests 2>&1 && flake8 src tests 2>&1)
-  ⎿  reformatted /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/weather_client.py
-     reformatted /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/tests/test_weather_client.
-     py
-     … +3 lines (ctrl+o to expand)
+● The params dict was dropped when I replaced the block. I need to add it back before the async with.
 
-● No flake8 output means zero errors. Now let me run tests again to make sure everything still passes:
+● Update(src/api_client.py)
+  ⎿  Added 6 lines
+      104              APIError: For any other failure - network errors, non-2xx
+      105                  responses, or payloads that cannot be parsed.
+      106          """
+      107 +        params: Dict[str, Any] = {
+      108 +            "latitude": latitude,
+      109 +            "longitude": longitude,
+      110 +            "current_weather": "true",
+      111 +        }
+      112 +
+      113          async with self._request_client() as client:
+      114              try:
+      115                  response: httpx.Response = await client.get(
 
-● Bash(source venv/bin/activate && pytest tests/ -v 2>&1)
-  ⎿  ============================= test session starts ==============================
-     platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/asura/.cache/claude-hfi/-m
-     nt-e-align-weather-cli/B/venv/bin/python3
  ▐▛███▜▌   Claude Code v2.1.105
-▝▜█████▛▘  Opus 4.6 · API Usage Billing
+▝▜█████▛▘  numbat-v7-prod with low effort · API Usage Billing
   ▘▘ ▝▝    ~/.cache/claude-hfi/-mnt-e-align-weather-cli/B
 
   Debug mode enabled
-  Logging to: /tmp/claude-hfi/72beed1e-d066-4757-98e5-3718ef8f0efe/debug.txt
+  Logging to: /tmp/claude-hfi/de9b437d-fa9c-4ea8-865f-13a31b25c6d7/debug.txt
 
-❯ The weather CLI project needs an async API client that fetches current weather data by latitude and
-  longitude from the Open-Meteo API. API failures should surface in a structured, catchable way rather
-  than letting raw HTTP exceptions leak through. Add a test suite with proper mocking of HTTP
-  interactions and no real API calls. Cover both the happy path and meaningful failure scenarios. Check
-  the CLAUDE.md for project conventions before starting.
+❯ Extend the existing asynchronous weather API client to support city name lookups. Implement
+  integration with the Open-Meteo Geocoding API to resolve a provided city name into its corresponding
+  latitude, longitude, and fully qualified location name. The implementation must handle edge cases
+  where the requested city yields zero results or returns malformed payloads by raising a specific
+  domain exception. Do not expose raw HTTP status codes or standard library errors to the calling
+  functions. Update the testing infrastructure to accommodate this new geocoding functionality.
+  Implement tests that mock the external geocoding network requests to verify successful coordinate
+  resolution and confirm the appropriate exception is raised when querying a non-existent city. Ensure
+  all additions align with the established asynchronous architecture and custom exception hierarchy.
+  Consider how the retrieved coordinate data and location strings will pass into the previously built
+  weather retrieval methods and eventually render in the terminal interface. Maintain strict type
+  hinting and handle all network timeouts or parsing failures at the client boundary to prevent
+  application crashes during execution.
 
-  Read 3 files, listed 3 directories (ctrl+o to expand)
-
-● Bash(/home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/venv/bin/pip list 2>/dev/null | grep -iE
-      "httpx|rich|pytest|respx")
-  ⎿  httpx             0.28.1
-     pytest            9.0.3
-     pytest-asyncio    1.3.0
-     … +2 lines (ctrl+o to expand)
-
-● I'll read the CLAUDE.md conventions (done), and now design the implementation. Key conventions:
-  - httpx.AsyncClient for async HTTP
-  - Custom exceptions in src/exceptions.py (APIError, LocationNotFoundError are explicitly mentioned)
-  - Strict type hints on all signatures and properties
-  - Tests must mock with respx — no live requests
-  - Conventional commits (not committing here, just noting)
-
-  Dependencies are already installed (httpx 0.28.1, respx 0.23.1, pytest 9.0.3, pytest-asyncio 1.3.0).
-
-  Let me first check if there's any pytest config I should be aware of.
-
-  Listed 1 directory (ctrl+o to expand)
-
-● No config files — I'll use @pytest.mark.asyncio decorators explicitly (strict mode is the default in
-  pytest-asyncio 1.x). Now I'll write the implementation.
-
-● The Write tool isn't available in this context. I'll create the files via Bash heredoc.
-
-  Read 3 files (ctrl+o to expand)
-
-● Now let me run the tests to verify everything works.
-
-● Bash(./venv/bin/pytest tests/ -v 2>&1)
-  ⎿  ============================= test session starts ==============================
-     platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/asura/.cache/claude-hfi/-mn
-     t-e-align-weather-cli/B/venv/bin/python3
-     … +15 lines (ctrl+o to expand)
-
-● All 8 tests pass. Let me also run the project's linter/formatter to make sure the code conforms to
-  conventions.
-
-● Bash(./venv/bin/black --check src tests 2>&1; echo "---flake8---"; ./venv/bin/flake8 src tests 2>&1)
-  ⎿  Error: Exit code 1
-     would reformat /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/api_client.py
-
-     Oh no! 💥 💔 💥
-     1 file would be reformatted, 4 files would be left unchanged.
-     ---flake8---
-     src/api_client.py:70:80: E501 line too long (82 > 79 characters)
-     src/api_client.py:120:80: E501 line too long (83 > 79 characters)
-     src/api_client.py:145:80: E501 line too long (80 > 79 characters)
-     src/exceptions.py:11:80: E501 line too long (80 > 79 characters)
-     … +3 lines (ctrl+o to see all)
-
-● Black wants reformatting and flake8 uses default 79-char lines. Let me apply black formatting first,
-  then see what remains.
-
-● Bash(./venv/bin/black src tests 2>&1; echo "---flake8---"; ./venv/bin/flake8 src tests 2>&1)
-  ⎿  Error: Exit code 1
-     reformatted /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/api_client.py
-
-     All done! ✨ 🍰 ✨
-     1 file reformatted, 4 files left unchanged.
-     ---flake8---
-     src/api_client.py:70:80: E501 line too long (82 > 79 characters)
-     src/api_client.py:120:80: E501 line too long (83 > 79 characters)
-     src/api_client.py:134:80: E501 line too long (83 > 79 characters)
-     src/api_client.py:143:80: E501 line too long (80 > 79 characters)
-     … +5 lines (ctrl+o to see all)
-
-● There's a conflict between black's 88-char default and flake8's 79-char default. I'll shorten the
-  offending lines to satisfy both (black leaves shorter lines alone).
-
-  Read 3 files (ctrl+o to expand)
+  Read 4 files, listed 2 directories (ctrl+o to expand)
 
 ● Update(src/exceptions.py)
-  ⎿  Added 7 lines, removed 5 lines
-       8
-       9
-      10  class APIError(WeatherCLIError):
-      11 -    """Raised when the weather API is unreachable or returns a failing response.
-      11 +    """Raised when the weather API is unreachable or fails.
-      12
-      13      Attributes:
-      14 -        status_code: The HTTP status code returned by the API, or ``None`` if
-      15 -            the request never produced a response (e.g. a network-level error).
-      14 +        status_code: The HTTP status code returned by the API, or ``None``
-      15 +            if the request never produced a response (e.g. a network error).
-      16      """
-      17
-      18 -    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
-      18 +    def __init__(
-      19 +        self, message: str, status_code: Optional[int] = None
-      20 +    ) -> None:
-      21          super().__init__(message)
-      22          self.status_code: Optional[int] = status_code
-      23
-      24
-      25  class LocationNotFoundError(WeatherCLIError):
-      24 -    """Raised when the requested coordinates are rejected by the weather API."""
-      26 +    """Raised when the requested coordinates are rejected by the API."""
-
-● Update(src/api_client.py)
-  ⎿  Added 1 line, removed 1 line
-      67          await self.aclose()
-      68
-      69      async def aclose(self) -> None:
-      70 -        """Close the underlying ``httpx.AsyncClient`` if this instance owns it."""
-      70 +        """Close the underlying ``httpx.AsyncClient`` if owned by this instance."""
-      71          if self._owns_client and self._client is not None:
-      72              await self._client.aclose()
-      73              self._client = None
-
-● Update(src/api_client.py)
-  ⎿  Added 1 line, removed 1 line
-      67          await self.aclose()
-      68
-      69      async def aclose(self) -> None:
-      70 -        """Close the underlying ``httpx.AsyncClient`` if owned by this instance."""
-      70 +        """Close the underlying ``httpx.AsyncClient`` if owned here."""
-      71          if self._owns_client and self._client is not None:
-      72              await self._client.aclose()
-      73              self._client = None
-
-● Update(src/api_client.py)
-  ⎿  Added 3 lines, removed 1 line
-      117
-      118              if response.status_code >= 400:
-      119                  detail: str = (
-      120 -                    _extract_error_reason(response) or response.reason_phrase or ""
-      120 +                    _extract_error_reason(response)
-      121 +                    or response.reason_phrase
-      122 +                    or ""
-      123                  )
-      124                  message: str = (
-      125                      f"Weather API returned HTTP {response.status_code}"
-
-● Update(src/api_client.py)
-  ⎿  Added 3 lines, removed 1 line
-      133                  raise APIError("Weather API returned invalid JSON") from exc
-      134
-      135              if not isinstance(payload, dict):
-      136 -                raise APIError("Weather API returned an unexpected JSON structure")
-      136 +                raise APIError(
-      137 +                    "Weather API returned an unexpected JSON structure"
-      138 +                )
-      139
-      140              return _parse_current_weather(payload)
-      141          finally:
-
-● Update(src/api_client.py)
-  ⎿  Added 1 line, removed 1 line
-      144
-      145
-      146  def _extract_error_reason(response: httpx.Response) -> Optional[str]:
-      147 -    """Return the ``reason`` field from an Open-Meteo error body, if present."""
-      147 +    """Return the ``reason`` field from an Open-Meteo error body, if any."""
-      148      try:
-      149          data: Any = response.json()
-      150      except ValueError:
-
-● Update(src/api_client.py)
-  ⎿  Added 3 lines, removed 1 line
-      159  def _parse_current_weather(payload: Dict[str, Any]) -> CurrentWeather:
-      160      current: Any = payload.get("current_weather")
-      161      if not isinstance(current, dict):
-      162 -        raise APIError("Weather API response missing 'current_weather' section")
-      162 +        raise APIError(
-      163 +            "Weather API response missing 'current_weather' section"
-      164 +        )
-      165      try:
-      166          return CurrentWeather(
-      167              latitude=float(payload["latitude"]),
-
-● Update(tests/test_api_client.py)
-  ⎿  Added 1 line, removed 1 line
-      160  @pytest.mark.asyncio
-      161  @respx.mock
-      162  async def test_malformed_current_weather_fields_raise_api_error() -> None:
-      163 -    """Payload has ``current_weather`` but required fields are missing/invalid."""
-      163 +    """Payload has ``current_weather`` but fields are missing/invalid."""
-      164      respx.get(OPEN_METEO_URL).mock(
-      165          return_value=httpx.Response(
-      166              200,
-
-● Bash(./venv/bin/black --check src tests 2>&1; echo "---flake8---"; ./venv/bin/flake8 src tests 2>&1;
-      echo "---pytest---"; ./venv/bin/pytest tests/ -v 2>&1)
-  ⎿  would reformat /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/exceptions.py
-     would reformat /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/api_client.py
-     … +18 lines (ctrl+o to expand)
-
-● flake8 is clean and all 8 tests pass. Black wants a reformat — let me check what it would change and
-  apply it if it keeps lines <=79.
-
-● Bash(./venv/bin/black --diff src/exceptions.py src/api_client.py 2>&1)
-  ⎿  --- src/exceptions.py      2026-04-17 06:20:13.435608+00:00
-     +++ src/exceptions.py      2026-04-17 06:20:39.320305+00:00
-     @@ -13,13 +13,11 @@
-     … +27 lines (ctrl+o to expand)
-
-● Black and flake8 have conflicting defaults (88 vs 79). Given the project uses black and has no config
-  file yet, I'll add a minimal .flake8 that aligns with black's 88-char default — this is the standard
-  resolution and makes the prescribed black src tests && flake8 src tests sequence work. I'll note this as
-   a project-level addition in my summary.
-
-● Bash(cat > /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/.flake8 <<'EOF'
-      [flake8]…)
-  ⎿  reformatted /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/exceptions.py
-     reformatted /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/api_client.py
-     … +20 lines (ctrl+o to expand)
-
-● All green: black passes, flake8 passes, all 8 tests pass. Let me confirm the final state of the files.
-
-  Listed 1 directory (ctrl+o to expand)
-
-● Here's a summary of what was added.
-
-  Files created
-
-  - src/exceptions.py — Custom exception hierarchy:
-    - WeatherCLIError (base class)
-    - APIError(message, status_code=None) — carries the HTTP status code when one exists, or None for
-  network-level errors
-    - LocationNotFoundError — raised specifically for coordinates rejected by the API
-  - src/api_client.py — Async API client:
-    - CurrentWeather frozen dataclass (latitude, longitude, temperature, windspeed, winddirection,
-  weathercode, time, timezone)
-    - WeatherClient — async-context-manager that wraps httpx.AsyncClient. Injects a shared client when
-  used via async with, or creates a transient one-shot client per call otherwise
-    - fetch_current_weather(lat, lon) -> CurrentWeather hits
-  https://api.open-meteo.com/v1/forecast?...&current_weather=true and maps errors as follows:
-        - httpx.RequestError → APIError("Network error …")
-      - HTTP 400 → LocationNotFoundError(reason) (Open-Meteo's 400 body includes a reason field)
-      - Other non-2xx → APIError(…, status_code=…)
-      - Non-JSON / missing current_weather / malformed fields → APIError
-    - Raw httpx exceptions do not leak — everything is wrapped in the typed hierarchy
-  - tests/test_api_client.py — 8 tests, all mocked with respx (no live network):
-    - test_fetch_current_weather_returns_parsed_result (happy path, asserts URL params and parsed
-  dataclass)
-    - test_fetch_current_weather_without_context_manager (transient client path)
-    - test_invalid_coordinates_raise_location_not_found (HTTP 400 with reason)
-    - test_server_error_raises_api_error_with_status_code (HTTP 503, status_code propagates)
-    - test_network_error_is_wrapped_as_api_error (httpx.ConnectError → APIError, preserves __cause__)
-    - test_malformed_json_body_raises_api_error
-    - test_missing_current_weather_section_raises_api_error
-    - test_malformed_current_weather_fields_raise_api_error
-
-  Project config addition (flagging for your awareness)
-
-  - .flake8 — added max-line-length = 88 and extend-ignore = E203, W503 so the CLAUDE.md workflow black
-  src tests && flake8 src tests is internally consistent. Without this, black (88-char default) and flake8
-   (79-char default) fight each other. This is the standard industry resolution, but it's a project-wide
-  policy decision — please tell me if you'd rather I back it out and instead wrap long lines manually.
-
-  Verification
-
-  - ./venv/bin/black --check src tests — clean
-  - ./venv/bin/flake8 src tests — clean
-  - ./venv/bin/pytest tests/ -v — 8 passed in 0.10s
-
-  Notes / things I deliberately did not do
-
-  - Did not touch requirements.txt, even though it contains literal \n characters instead of real newlines
-   (pre-existing; out of scope).
-  - Did not add a conftest.py or pyproject.toml for pytest-asyncio — pytest-asyncio 1.x strict mode works
-  fine with explicit @pytest.mark.asyncio decorators.
-  - Did not commit anything — CLAUDE.md specifies conventional commits, but I'll leave that to you unless
-  you want me to commit.
-
-❯ LocationNotFoundError inherits from WeatherCLIError directly instead of APIError. Any caller doing
-  except APIError to broadly catch API failures will miss bad-coordinate errors silently. Re-parent it
-  under APIError so the hierarchy is consistent. Also the HTTP 400 handler falls back to a default
-  message when the response body has no reason field, but no test covers that branch. Add a test that
-  sends a 400 with a JSON body missing the reason key to make sure that fallback path is exercised.
-
-  Read 3 files (ctrl+o to expand)
-
-● Update(src/exceptions.py)
-  ⎿  Added 1 line, removed 1 line
-      20          self.status_code: Optional[int] = status_code
-      21
-      22
-      23 -class LocationNotFoundError(WeatherCLIError):
-      23 +class LocationNotFoundError(APIError):
-      24      """Raised when the requested coordinates are rejected by the API."""
-
-● Now read the end of the test file to find the right insertion point.
-
-  Read 1 file (ctrl+o to expand)
-
-● Update(tests/test_api_client.py)
-  ⎿  Added 18 lines
-      103
-      104  @pytest.mark.asyncio
-      105  @respx.mock
-      106 +async def test_invalid_coordinates_fallback_message() -> None:
-      107 +    """HTTP 400 with no ``reason`` key uses the default message."""
-      108 +    respx.get(OPEN_METEO_URL).mock(
-      109 +        return_value=httpx.Response(
- ▐▛███▜▌   Claude Code v2.1.105
-▝▜█████▛▘  numbat-v7-prod with high effort · API Usage Billing
-  ▘▘ ▝▝    ~/.cache/claude-hfi/-mnt-e-align-weather-cli/B
-
-  Debug mode enabled
-  Logging to: /tmp/claude-hfi/72beed1e-d066-4757-98e5-3718ef8f0efe/debug.txt
-
-❯ The weather CLI project needs an async API client that fetches current weather data by latitude and
-  longitude from the Open-Meteo API. API failures should surface in a structured, catchable way rather
-  than letting raw HTTP exceptions leak through. Add a test suite with proper mocking of HTTP
-  interactions and no real API calls. Cover both the happy path and meaningful failure scenarios. Check
-  the CLAUDE.md for project conventions before starting.
-
-  Read 3 files, listed 3 directories (ctrl+o to expand)
-
-● Bash(/home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/venv/bin/pip list 2>/dev/null | grep -iE
-      "httpx|rich|pytest|respx")
-  ⎿  httpx             0.28.1
-     pytest            9.0.3
-     pytest-asyncio    1.3.0
-     … +2 lines (ctrl+o to expand)
-
-● I'll read the CLAUDE.md conventions (done), and now design the implementation. Key conventions:
-  - httpx.AsyncClient for async HTTP
-  - Custom exceptions in src/exceptions.py (APIError, LocationNotFoundError are explicitly mentioned)
-  - Strict type hints on all signatures and properties
-  - Tests must mock with respx — no live requests
-  - Conventional commits (not committing here, just noting)
-
-  Dependencies are already installed (httpx 0.28.1, respx 0.23.1, pytest 9.0.3, pytest-asyncio 1.3.0).
-
-  Let me first check if there's any pytest config I should be aware of.
-
-  Listed 1 directory (ctrl+o to expand)
-
-● No config files — I'll use @pytest.mark.asyncio decorators explicitly (strict mode is the default in
-  pytest-asyncio 1.x). Now I'll write the implementation.
-
-● The Write tool isn't available in this context. I'll create the files via Bash heredoc.
-
-  Read 3 files (ctrl+o to expand)
-
-● Now let me run the tests to verify everything works.
-
-● Bash(./venv/bin/pytest tests/ -v 2>&1)
-  ⎿  ============================= test session starts ==============================
-     platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/asura/.cache/claude-hfi/-mn
-     t-e-align-weather-cli/B/venv/bin/python3
-     … +15 lines (ctrl+o to expand)
-
-● All 8 tests pass. Let me also run the project's linter/formatter to make sure the code conforms to
-  conventions.
-
-● Bash(./venv/bin/black --check src tests 2>&1; echo "---flake8---"; ./venv/bin/flake8 src tests 2>&1)
-  ⎿  Error: Exit code 1
-     would reformat /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/api_client.py
-
-     Oh no! 💥 💔 💥
-     1 file would be reformatted, 4 files would be left unchanged.
-     ---flake8---
-     src/api_client.py:70:80: E501 line too long (82 > 79 characters)
-     src/api_client.py:120:80: E501 line too long (83 > 79 characters)
-     src/api_client.py:145:80: E501 line too long (80 > 79 characters)
-     src/exceptions.py:11:80: E501 line too long (80 > 79 characters)
-     … +3 lines (ctrl+o to see all)
-
-● Black wants reformatting and flake8 uses default 79-char lines. Let me apply black formatting first,
-  then see what remains.
-
-● Bash(./venv/bin/black src tests 2>&1; echo "---flake8---"; ./venv/bin/flake8 src tests 2>&1)
-  ⎿  Error: Exit code 1
-     reformatted /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/api_client.py
-
-     All done! ✨ 🍰 ✨
-     1 file reformatted, 4 files left unchanged.
-     ---flake8---
-     src/api_client.py:70:80: E501 line too long (82 > 79 characters)
-     src/api_client.py:120:80: E501 line too long (83 > 79 characters)
-     src/api_client.py:134:80: E501 line too long (83 > 79 characters)
-     src/api_client.py:143:80: E501 line too long (80 > 79 characters)
-     … +5 lines (ctrl+o to see all)
-
-● There's a conflict between black's 88-char default and flake8's 79-char default. I'll shorten the
-  offending lines to satisfy both (black leaves shorter lines alone).
-
-  Read 3 files (ctrl+o to expand)
-
-● Update(src/exceptions.py)
-  ⎿  Added 7 lines, removed 5 lines
-       8
-       9
-      10  class APIError(WeatherCLIError):
-      11 -    """Raised when the weather API is unreachable or returns a failing response.
-      11 +    """Raised when the weather API is unreachable or fails.
-      12
-      13      Attributes:
-      14 -        status_code: The HTTP status code returned by the API, or ``None`` if
-      15 -            the request never produced a response (e.g. a network-level error).
-      14 +        status_code: The HTTP status code returned by the API, or ``None``
-      15 +            if the request never produced a response (e.g. a network error).
-      16      """
-      17
-      18 -    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
-      18 +    def __init__(
-      19 +        self, message: str, status_code: Optional[int] = None
-      20 +    ) -> None:
-      21          super().__init__(message)
-      22          self.status_code: Optional[int] = status_code
-      23
-      24
-      25  class LocationNotFoundError(WeatherCLIError):
-      24 -    """Raised when the requested coordinates are rejected by the weather API."""
-      26 +    """Raised when the requested coordinates are rejected by the API."""
-
-● Update(src/api_client.py)
-  ⎿  Added 1 line, removed 1 line
-      67          await self.aclose()
-      68
-      69      async def aclose(self) -> None:
-      70 -        """Close the underlying ``httpx.AsyncClient`` if this instance owns it."""
-      70 +        """Close the underlying ``httpx.AsyncClient`` if owned by this instance."""
-      71          if self._owns_client and self._client is not None:
-      72              await self._client.aclose()
-      73              self._client = None
-
-● Update(src/api_client.py)
-  ⎿  Added 1 line, removed 1 line
-      67          await self.aclose()
-      68
-      69      async def aclose(self) -> None:
-      70 -        """Close the underlying ``httpx.AsyncClient`` if owned by this instance."""
-      70 +        """Close the underlying ``httpx.AsyncClient`` if owned here."""
-      71          if self._owns_client and self._client is not None:
-      72              await self._client.aclose()
-      73              self._client = None
-
-● Update(src/api_client.py)
-  ⎿  Added 3 lines, removed 1 line
-      117
-      118              if response.status_code >= 400:
-      119                  detail: str = (
-      120 -                    _extract_error_reason(response) or response.reason_phrase or ""
-      120 +                    _extract_error_reason(response)
-      121 +                    or response.reason_phrase
-      122 +                    or ""
-      123                  )
-      124                  message: str = (
-      125                      f"Weather API returned HTTP {response.status_code}"
-
-● Update(src/api_client.py)
-  ⎿  Added 3 lines, removed 1 line
-      133                  raise APIError("Weather API returned invalid JSON") from exc
-      134
-      135              if not isinstance(payload, dict):
-      136 -                raise APIError("Weather API returned an unexpected JSON structure")
-      136 +                raise APIError(
-      137 +                    "Weather API returned an unexpected JSON structure"
-      138 +                )
-      139
-      140              return _parse_current_weather(payload)
-      141          finally:
-
-● Update(src/api_client.py)
-  ⎿  Added 1 line, removed 1 line
-      144
-      145
-      146  def _extract_error_reason(response: httpx.Response) -> Optional[str]:
-      147 -    """Return the ``reason`` field from an Open-Meteo error body, if present."""
-      147 +    """Return the ``reason`` field from an Open-Meteo error body, if any."""
-      148      try:
-      149          data: Any = response.json()
-      150      except ValueError:
-
-● Update(src/api_client.py)
-  ⎿  Added 3 lines, removed 1 line
-      159  def _parse_current_weather(payload: Dict[str, Any]) -> CurrentWeather:
-      160      current: Any = payload.get("current_weather")
-      161      if not isinstance(current, dict):
-      162 -        raise APIError("Weather API response missing 'current_weather' section")
-      162 +        raise APIError(
-      163 +            "Weather API response missing 'current_weather' section"
-      164 +        )
-      165      try:
-      166          return CurrentWeather(
-      167              latitude=float(payload["latitude"]),
-
-● Update(tests/test_api_client.py)
-  ⎿  Added 1 line, removed 1 line
-      160  @pytest.mark.asyncio
-      161  @respx.mock
-      162  async def test_malformed_current_weather_fields_raise_api_error() -> None:
-      163 -    """Payload has ``current_weather`` but required fields are missing/invalid."""
-      163 +    """Payload has ``current_weather`` but fields are missing/invalid."""
-      164      respx.get(OPEN_METEO_URL).mock(
-      165          return_value=httpx.Response(
-      166              200,
-
-● Bash(./venv/bin/black --check src tests 2>&1; echo "---flake8---"; ./venv/bin/flake8 src tests 2>&1;
-      echo "---pytest---"; ./venv/bin/pytest tests/ -v 2>&1)
-  ⎿  would reformat /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/exceptions.py
-     would reformat /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/api_client.py
-     … +18 lines (ctrl+o to expand)
-
-● flake8 is clean and all 8 tests pass. Black wants a reformat — let me check what it would change and
-  apply it if it keeps lines <=79.
-
-● Bash(./venv/bin/black --diff src/exceptions.py src/api_client.py 2>&1)
-  ⎿  --- src/exceptions.py      2026-04-17 06:20:13.435608+00:00
-     +++ src/exceptions.py      2026-04-17 06:20:39.320305+00:00
-     @@ -13,13 +13,11 @@
-     … +27 lines (ctrl+o to expand)
-
-● Black and flake8 have conflicting defaults (88 vs 79). Given the project uses black and has no config
-  file yet, I'll add a minimal .flake8 that aligns with black's 88-char default — this is the standard
-  resolution and makes the prescribed black src tests && flake8 src tests sequence work. I'll note this as
-   a project-level addition in my summary.
-
-● Bash(cat > /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/.flake8 <<'EOF'
-      [flake8]…)
-  ⎿  reformatted /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/exceptions.py
-     reformatted /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/api_client.py
-     … +20 lines (ctrl+o to expand)
-
-● All green: black passes, flake8 passes, all 8 tests pass. Let me confirm the final state of the files.
-
-  Listed 1 directory (ctrl+o to expand)
-
-● Here's a summary of what was added.
-
-  Files created
-
-  - src/exceptions.py — Custom exception hierarchy:
-    - WeatherCLIError (base class)
-    - APIError(message, status_code=None) — carries the HTTP status code when one exists, or None for
-  network-level errors
-    - LocationNotFoundError — raised specifically for coordinates rejected by the API
-  - src/api_client.py — Async API client:
-    - CurrentWeather frozen dataclass (latitude, longitude, temperature, windspeed, winddirection,
-  weathercode, time, timezone)
-    - WeatherClient — async-context-manager that wraps httpx.AsyncClient. Injects a shared client when
-  used via async with, or creates a transient one-shot client per call otherwise
-    - fetch_current_weather(lat, lon) -> CurrentWeather hits
-  https://api.open-meteo.com/v1/forecast?...&current_weather=true and maps errors as follows:
-        - httpx.RequestError → APIError("Network error …")
-      - HTTP 400 → LocationNotFoundError(reason) (Open-Meteo's 400 body includes a reason field)
-      - Other non-2xx → APIError(…, status_code=…)
-      - Non-JSON / missing current_weather / malformed fields → APIError
-    - Raw httpx exceptions do not leak — everything is wrapped in the typed hierarchy
-  - tests/test_api_client.py — 8 tests, all mocked with respx (no live network):
-    - test_fetch_current_weather_returns_parsed_result (happy path, asserts URL params and parsed
-  dataclass)
-    - test_fetch_current_weather_without_context_manager (transient client path)
-    - test_invalid_coordinates_raise_location_not_found (HTTP 400 with reason)
-    - test_server_error_raises_api_error_with_status_code (HTTP 503, status_code propagates)
-    - test_network_error_is_wrapped_as_api_error (httpx.ConnectError → APIError, preserves __cause__)
-    - test_malformed_json_body_raises_api_error
-    - test_missing_current_weather_section_raises_api_error
-    - test_malformed_current_weather_fields_raise_api_error
-
-  Project config addition (flagging for your awareness)
-
-  - .flake8 — added max-line-length = 88 and extend-ignore = E203, W503 so the CLAUDE.md workflow black
-  src tests && flake8 src tests is internally consistent. Without this, black (88-char default) and flake8
-   (79-char default) fight each other. This is the standard industry resolution, but it's a project-wide
-  policy decision — please tell me if you'd rather I back it out and instead wrap long lines manually.
-
-  Verification
-
-  - ./venv/bin/black --check src tests — clean
-  - ./venv/bin/flake8 src tests — clean
-  - ./venv/bin/pytest tests/ -v — 8 passed in 0.10s
-
-  Notes / things I deliberately did not do
-
-  - Did not touch requirements.txt, even though it contains literal \n characters instead of real newlines
-   (pre-existing; out of scope).
-  - Did not add a conftest.py or pyproject.toml for pytest-asyncio — pytest-asyncio 1.x strict mode works
-  fine with explicit @pytest.mark.asyncio decorators.
-  - Did not commit anything — CLAUDE.md specifies conventional commits, but I'll leave that to you unless
-  you want me to commit.
-
-❯ LocationNotFoundError inherits from WeatherCLIError directly instead of APIError. Any caller doing
-  except APIError to broadly catch API failures will miss bad-coordinate errors silently. Re-parent it
-  under APIError so the hierarchy is consistent. Also the HTTP 400 handler falls back to a default
-  message when the response body has no reason field, but no test covers that branch. Add a test that
-  sends a 400 with a JSON body missing the reason key to make sure that fallback path is exercised.
-
-● Good catches on both. Let me read the current state of the files (they were reformatted by black) before
-   editing.
-
-  Read 2 files (ctrl+o to expand)
-
-● Update(src/exceptions.py)
-  ⎿  Added 6 lines, removed 2 lines
-      20          self.status_code: Optional[int] = status_code
-      21
-      22
-      23 -class LocationNotFoundError(WeatherCLIError):
-      24 -    """Raised when the requested coordinates are rejected by the API."""
-      23 +class LocationNotFoundError(APIError):
-      24 +    """Raised when the requested coordinates are rejected by the API.
-      25 +
-      26 +    This is a subclass of :class:`APIError` so callers that broadly catch
-      27 +    ``APIError`` still handle bad-coordinate failures.
-      28 +    """
-
-● Now update the raise site in api_client.py to pass status_code=400 since we now know it (and
-  APIError.__init__ accepts it):
+  ⎿  Added 10 lines
+      26      This is a subclass of :class:`APIError` so callers that broadly catch
+      27      ``APIError`` still handle bad-coordinate failures.
+      28      """
+      29 +
+      30 +
+      31 +class CityNotFoundError(APIError):
+      32 +    """Raised when a city name cannot be resolved by the geocoding API.
+      33 +
+      34 +    This is a subclass of :class:`APIError` so callers that broadly catch
+      35 +    ``APIError`` still handle unknown-city failures. It is raised both when
+      36 +    the geocoding service returns zero results and when the response payload
+      37 +    is structurally valid but contains no usable match.
+      38 +    """
 
 ● Update(src/api_client.py)
   ⎿  Added 2 lines, removed 1 line
-      112              if response.status_code == 400:
-      113                  reason: Optional[str] = _extract_error_reason(response)
-      114                  raise LocationNotFoundError(
-      115 -                    reason or "Invalid coordinates for weather lookup"
-      115 +                    reason or "Invalid coordinates for weather lookup",
-      116 +                    status_code=400,
-      117                  )
-      118
-      119              if response.status_code >= 400:
+       6
+       7  import httpx
+       8
+       9 -from src.exceptions import APIError, LocationNotFoundError
+       9 +from src.exceptions import APIError, CityNotFoundError, LocationNotFoundError
+      10
+      11  OPEN_METEO_URL: str = "https://api.open-meteo.com/v1/forecast"
+      12 +OPEN_METEO_GEOCODING_URL: str = "https://geocoding-api.open-meteo.com/v1/search"
+      13  DEFAULT_TIMEOUT: float = 10.0
+      14
+      15
 
-● Now let me read the existing test file and add the new test, plus strengthen the existing 400 test to
-  assert the APIError subclass relationship.
+● Update(src/api_client.py)
+  ⎿  Added 14 lines
+      14
+      15
+      16  @dataclass(frozen=True)
+      17 +class Location:
+      18 +    """A geocoded location resolved from a user-supplied city name."""
+      19 +
+      20 +    latitude: float
+      21 +    longitude: float
+      22 +    name: str
+      23 +
+      24 +    @property
+      25 +    def display_name(self) -> str:
+      26 +        """Alias for :attr:`name` for rendering in the terminal UI."""
+      27 +        return self.name
+      28 +
+      29 +
+      30 +@dataclass(frozen=True)
+      31  class CurrentWeather:
+      32      """Current-weather snapshot returned by :class:`WeatherClient`."""
+      33
 
-  Read 1 file (ctrl+o to expand)
+● Update(src/api_client.py)
+  ⎿  Added 2 lines
+      61          base_url: str = OPEN_METEO_URL,
+      62          timeout: float = DEFAULT_TIMEOUT,
+      63          client: Optional[httpx.AsyncClient] = None,
+      64 +        geocoding_url: str = OPEN_METEO_GEOCODING_URL,
+      65      ) -> None:
+      66          self._base_url: str = base_url
+      67 +        self._geocoding_url: str = geocoding_url
+      68          self._timeout: float = timeout
+      69          self._client: Optional[httpx.AsyncClient] = client
+      70          self._owns_client: bool = client is None
+
+● Now let me add the geocode method. I need to refactor slightly to share the client acquisition logic.
+
+● Update(src/api_client.py)
+  ⎿  Added 1 line, removed 8 lines
+      103              APIError: For any other failure - network errors, non-2xx
+      104                  responses, or payloads that cannot be parsed.
+      105          """
+      106 -        client: httpx.AsyncClient
+      107 -        close_after: bool
+      108 -        if self._client is not None:
+      109 -            client = self._client
+      110 -            close_after = False
+      111 -        else:
+      112 -            client = httpx.AsyncClient(timeout=self._timeout)
+      113 -            close_after = True
+      106 +        client, close_after = self._acquire_client()
+      107
+      108          params: Dict[str, Any] = {
+      109              "latitude": latitude,
+
+● Update(src/api_client.py)
+  ⎿  Added 74 lines
+      151              if close_after:
+      152                  await client.aclose()
+      153
+      154 +    def _acquire_client(self) -> tuple:
+      155 +        """Return ``(client, close_after)`` for a single request.
+      156
+      157 +        If the instance owns a persistent client (via ``async with``), that
+      158 +        is returned and ``close_after`` is ``False``. Otherwise a transient
+      159 +        ``httpx.AsyncClient`` is created and the caller is expected to close
+      160 +        it when done.
+      161 +        """
+      162 +        if self._client is not None:
+      163 +            return self._client, False
+      164 +        return httpx.AsyncClient(timeout=self._timeout), True
+      165 +
+      166 +    async def geocode_city(self, city: str) -> Location:
+      167 +        """Resolve a ``city`` name to a :class:`Location`.
+      168 +
+      169 +        Uses the Open-Meteo Geocoding API. The returned :class:`Location`
+      170 +        carries ``latitude`` and ``longitude`` that can be fed directly
+      171 +        into :meth:`fetch_current_weather`, plus a fully qualified ``name``
+      172 +        (e.g. ``"Berlin, Land Berlin, Germany"``) suitable for display in
+      173 +        the terminal UI.
+      174 +
+      175 +        Raises:
+      176 +            CityNotFoundError: If the geocoding service returns zero
+      177 +                results for ``city`` or a structurally valid payload with
+      178 +                no usable match. Subclass of ``APIError``.
+      179 +            APIError: For any other failure - network errors, non-2xx
+      180 +                responses, timeouts, or payloads that cannot be parsed.
+      181 +        """
+      182 +        if not city or not city.strip():
+      183 +            raise CityNotFoundError("City name must be a non-empty string")
+      184 +
+      185 +        client, close_after = self._acquire_client()
+      186 +
+      187 +        params: Dict[str, Any] = {
+      188 +            "name": city,
+      189 +            "count": 1,
+      190 +            "format": "json",
+      191 +        }
+      192 +
+      193 +        try:
+      194 +            try:
+      195 +                response: httpx.Response = await client.get(
+      196 +                    self._geocoding_url, params=params
+      197 +                )
+      198 +            except httpx.RequestError as exc:
+      199 +                raise APIError(
+      200 +                    f"Network error while contacting geocoding API: {exc}"
+      201 +                ) from exc
+      202 +
+      203 +            if response.status_code >= 400:
+      204 +                detail: str = (
+      205 +                    _extract_error_reason(response) or response.reason_phrase or ""
+      206 +                )
+      207 +                message: str = (
+      208 +                    f"Geocoding API returned HTTP {response.status_code}"
+      209 +                    f"{': ' + detail if detail else ''}"
+      210 +                )
+      211 +                raise APIError(message, status_code=response.status_code)
+      212 +
+      213 +            try:
+      214 +                payload: Any = response.json()
+      215 +            except ValueError as exc:
+      216 +                raise APIError("Geocoding API returned invalid JSON") from exc
+      217 +
+      218 +            if not isinstance(payload, dict):
+      219 +                raise APIError(
+      220 +                    "Geocoding API returned an unexpected JSON structure"
+      221 +                )
+      222 +
+      223 +            return _parse_geocoding_result(payload, city)
+      224 +        finally:
+      225 +            if close_after:
+      226 +                await client.aclose()
+      227 +
+      228 +
+      229  def _extract_error_reason(response: httpx.Response) -> Optional[str]:
+      230      """Return the ``reason`` field from an Open-Meteo error body, if any."""
+      231      try:
+
+● Update(src/api_client.py)
+  ⎿  Added 31 lines
+      258          raise APIError(
+      259              f"Weather API response missing or malformed field: {exc}"
+      260          ) from exc
+      261 +
+      262 +
+      263 +def _parse_geocoding_result(payload: Dict[str, Any], city: str) -> Location:
+      264 +    """Parse the first result in an Open-Meteo geocoding payload."""
+      265 +    results: Any = payload.get("results")
+      266 +    if not isinstance(results, list) or not results:
+      267 +        raise CityNotFoundError(f"No geocoding results for city: {city!r}")
+      268 +
+      269 +    first: Any = results[0]
+      270 +    if not isinstance(first, dict):
+      271 +        raise APIError("Geocoding API returned a malformed result entry")
+      272 +
+      273 +    try:
+      274 +        latitude: float = float(first["latitude"])
+      275 +        longitude: float = float(first["longitude"])
+      276 +        name_field: str = str(first["name"])
+      277 +    except (KeyError, TypeError, ValueError) as exc:
+      278 +        raise APIError(
+      279 +            f"Geocoding API response missing or malformed field: {exc}"
+      280 +        ) from exc
+      281 +
+      282 +    admin1: Any = first.get("admin1")
+      283 +    country: Any = first.get("country")
+      284 +    parts = [name_field]
+      285 +    if isinstance(admin1, str) and admin1:
+      286 +        parts.append(admin1)
+      287 +    if isinstance(country, str) and country:
+      288 +        parts.append(country)
+      289 +    full_name: str = ", ".join(parts)
+      290 +
+      291 +    return Location(latitude=latitude, longitude=longitude, name=full_name)
+
+● Update(src/api_client.py)
+  ⎿  Added 1 line, removed 1 line
+      2
+      3  from dataclasses import dataclass
+      4  from types import TracebackType
+      5 -from typing import Any, Dict, Optional, Type
+      5 +from typing import Any, Dict, List, Optional, Tuple, Type
+      6
+      7  import httpx
+      8
+
+● Update(src/api_client.py)
+  ⎿  Added 1 line, removed 1 line
+      151              if close_after:
+      152                  await client.aclose()
+      153
+      154 -    def _acquire_client(self) -> tuple:
+      154 +    def _acquire_client(self) -> Tuple[httpx.AsyncClient, bool]:
+      155          """Return ``(client, close_after)`` for a single request.
+      156
+      157          If the instance owns a persistent client (via ``async with``), that
+
+● Update(src/api_client.py)
+  ⎿  Added 1 line, removed 1 line
+      281
+      282      admin1: Any = first.get("admin1")
+      283      country: Any = first.get("country")
+      284 -    parts = [name_field]
+      284 +    parts: List[str] = [name_field]
+      285      if isinstance(admin1, str) and admin1:
+      286          parts.append(admin1)
+      287      if isinstance(country, str) and country:
+
+● Now add the tests:
 
 ● Update(tests/test_api_client.py)
-  ⎿  Added 19 lines
-       99              await client.fetch_current_weather(999.0, 0.0)
-      100
-      101      assert "Latitude must be in range" in str(excinfo.value)
-      102 +    # Must also be catchable as APIError so broad handlers still work.
-      103 +    assert isinstance(excinfo.value, APIError)
-      104 +    assert excinfo.value.status_code == 400
-      105
-      106
-      107  @pytest.mark.asyncio
-      108  @respx.mock
-      109 +async def test_invalid_coordinates_without_reason_uses_fallback_message() -> None:
-      110 +    """HTTP 400 with no ``reason`` field falls back to a generic message."""
-      111 +    respx.get(OPEN_METEO_URL).mock(
-      112 +        return_value=httpx.Response(400, json={"error": True}),
-      113 +    )
-      114 +
-      115 +    async with WeatherClient() as client:
-      116 +        with pytest.raises(LocationNotFoundError) as excinfo:
-      117 +            await client.fetch_current_weather(999.0, 0.0)
-      118 +
-      119 +    assert "Invalid coordinates for weather lookup" in str(excinfo.value)
-      120 +    assert excinfo.value.status_code == 400
-      121 +
-      122 +
-      123 +@pytest.mark.asyncio
-      124 +@respx.mock
-      125  async def test_server_error_raises_api_error_with_status_code() -> None:
-      126      respx.get(OPEN_METEO_URL).mock(
-      127          return_value=httpx.Response(503, text="Service Unavailable"),
+  ⎿  Added 8 lines, removed 2 lines
+      10  import pytest
+      11  import respx
+      12
+      13 -from src.api_client import OPEN_METEO_URL, CurrentWeather, WeatherClient
+      14 -from src.exceptions import APIError, LocationNotFoundError
+      13 +from src.api_client import (
+      14 +    OPEN_METEO_GEOCODING_URL,
+      15 +    OPEN_METEO_URL,
+      16 +    CurrentWeather,
+      17 +    Location,
+      18 +    WeatherClient,
+      19 +)
+      20 +from src.exceptions import APIError, CityNotFoundError, LocationNotFoundError
+      21
+      22
+      23  @pytest.fixture
 
-● Now let me run all the checks to verify.
+● Update(tests/test_api_client.py)
+  ⎿  Added 170 lines
+      209      async with WeatherClient() as client:
+      210          with pytest.raises(APIError, match="malformed field"):
+      211              await client.fetch_current_weather(52.52, 13.42)
+      212 +
+      213 +
+      214 +# ---------------------------------------------------------------------------
+      215 +# Geocoding tests
+      216 +# ---------------------------------------------------------------------------
+      217 +
+      218 +
+      219 +@pytest.fixture
+      220 +def geocoding_payload() -> Dict[str, Any]:
+      221 +    """A representative Open-Meteo geocoding response for ``Berlin``."""
+      222 +    return {
+      223 +        "results": [
+      224 +            {
+      225 +                "id": 2950159,
+      226 +                "name": "Berlin",
+      227 +                "latitude": 52.52437,
+      228 +                "longitude": 13.41053,
+      229 +                "country": "Germany",
+      230 +                "admin1": "Land Berlin",
+      231 +                "timezone": "Europe/Berlin",
+      232 +            }
+      233 +        ],
+      234 +        "generationtime_ms": 0.5,
+      235 +    }
+      236 +
+      237 +
+      238 +@pytest.mark.asyncio
+      239 +@respx.mock
+      240 +async def test_geocode_city_returns_parsed_location(
+      241 +    geocoding_payload: Dict[str, Any],
+      242 +) -> None:
+      243 +    route = respx.get(OPEN_METEO_GEOCODING_URL).mock(
+      244 +        return_value=httpx.Response(200, json=geocoding_payload)
+      245 +    )
+      246 +
+      247 +    async with WeatherClient() as client:
+      248 +        location = await client.geocode_city("Berlin")
+      249 +
+      250 +    assert route.called
+      251 +    request = route.calls.last.request
+      252 +    assert request.url.params["name"] == "Berlin"
+      253 +    assert request.url.params["count"] == "1"
+      254 +
+      255 +    assert location == Location(
+      256 +        latitude=52.52437,
+      257 +        longitude=13.41053,
+      258 +        name="Berlin, Land Berlin, Germany",
+      259 +    )
+      260 +    # display_name is an alias used for terminal rendering.
+      261 +    assert location.display_name == "Berlin, Land Berlin, Germany"
+      262 +
+      263 +
+      264 +@pytest.mark.asyncio
+      265 +@respx.mock
+      266 +async def test_geocode_city_feeds_into_fetch_current_weather(
+      267 +    geocoding_payload: Dict[str, Any],
+      268 +    sample_payload: Dict[str, Any],
+      269 +) -> None:
+      270 +    """Coordinates from geocoding can be handed to the weather endpoint."""
+      271 +    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+      272 +        return_value=httpx.Response(200, json=geocoding_payload)
+      273 +    )
+      274 +    weather_route = respx.get(OPEN_METEO_URL).mock(
+      275 +        return_value=httpx.Response(200, json=sample_payload)
+      276 +    )
+      277 +
+      278 +    async with WeatherClient() as client:
+      279 +        location = await client.geocode_city("Berlin")
+      280 +        weather = await client.fetch_current_weather(
+      281 +            location.latitude, location.longitude
+      282 +        )
+      283 +
+      284 +    assert weather_route.called
+      285 +    assert weather.temperature == 13.4
+      286 +
+      287 +
+      288 +@pytest.mark.asyncio
+      289 +@respx.mock
+      290 +async def test_geocode_city_empty_results_raises_city_not_found() -> None:
+      291 +    """Zero results from the geocoding API raises ``CityNotFoundError``."""
+      292 +    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+      293 +        return_value=httpx.Response(200, json={"generationtime_ms": 0.1}),
+      294 +    )
+      295 +
+      296 +    async with WeatherClient() as client:
+      297 +        with pytest.raises(CityNotFoundError) as excinfo:
+      298 +            await client.geocode_city("Xyznowhere")
+      299 +
+      300 +    assert "Xyznowhere" in str(excinfo.value)
+      301 +    # Must also be catchable as APIError for broad handlers.
+      302 +    assert isinstance(excinfo.value, APIError)
+      303 +
+      304 +
+      305 +@pytest.mark.asyncio
+      306 +@respx.mock
+      307 +async def test_geocode_city_empty_results_list_raises_city_not_found() -> None:
+      308 +    """An explicit empty ``results`` list also raises ``CityNotFoundError``."""
+      309 +    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+      310 +        return_value=httpx.Response(200, json={"results": []}),
+      311 +    )
+      312 +
+      313 +    async with WeatherClient() as client:
+      314 +        with pytest.raises(CityNotFoundError):
+      315 +            await client.geocode_city("Nowhereville")
+      316 +
+      317 +
+      318 +@pytest.mark.asyncio
+      319 +async def test_geocode_city_empty_name_raises_city_not_found() -> None:
+      320 +    """An empty or whitespace-only name never touches the network."""
+      321 +    async with WeatherClient() as client:
+      322 +        with pytest.raises(CityNotFoundError):
+      323 +            await client.geocode_city("   ")
+      324 +
+      325 +
+      326 +@pytest.mark.asyncio
+      327 +@respx.mock
+      328 +async def test_geocode_city_malformed_json_raises_api_error() -> None:
+      329 +    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+      330 +        return_value=httpx.Response(200, text="<html>not json</html>"),
+      331 +    )
+      332 +
+      333 +    async with WeatherClient() as client:
+      334 +        with pytest.raises(APIError, match="invalid JSON"):
+      335 +            await client.geocode_city("Berlin")
+      336 +
+      337 +
+      338 +@pytest.mark.asyncio
+      339 +@respx.mock
+      340 +async def test_geocode_city_malformed_result_entry_raises_api_error() -> None:
+      341 +    """A result entry missing required fields raises ``APIError``."""
+      342 +    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+      343 +        return_value=httpx.Response(
+      344 +            200,
+      345 +            json={"results": [{"name": "Berlin"}]},  # missing lat/long
+      346 +        ),
+      347 +    )
+      348 +
+      349 +    async with WeatherClient() as client:
+      350 +        with pytest.raises(APIError, match="missing or malformed field"):
+      351 +            await client.geocode_city("Berlin")
+      352 +
+      353 +
+      354 +@pytest.mark.asyncio
+      355 +@respx.mock
+      356 +async def test_geocode_city_server_error_raises_api_error() -> None:
+      357 +    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+      358 +        return_value=httpx.Response(503, text="Service Unavailable"),
+      359 +    )
+      360 +
+      361 +    async with WeatherClient() as client:
+      362 +        with pytest.raises(APIError) as excinfo:
+      363 +            await client.geocode_city("Berlin")
+      364 +
+      365 +    assert excinfo.value.status_code == 503
+      366 +
+      367 +
+      368 +@pytest.mark.asyncio
+      369 +@respx.mock
+      370 +async def test_geocode_city_network_error_is_wrapped_as_api_error() -> None:
+      371 +    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+      372 +        side_effect=httpx.ConnectTimeout("timeout"),
+      373 +    )
+      374 +
+      375 +    async with WeatherClient() as client:
+      376 +        with pytest.raises(APIError) as excinfo:
+      377 +            await client.geocode_city("Berlin")
+      378 +
+      379 +    assert "Network error" in str(excinfo.value)
+      380 +    assert excinfo.value.status_code is None
+      381 +    assert isinstance(excinfo.value.__cause__, httpx.ConnectTimeout)
 
-● Bash(./venv/bin/black --check src tests 2>&1 && echo "---flake8---" && ./venv/bin/flake8 src tests &&
-      echo "flake8 OK" && echo "---pytest---" && ./venv/bin/pytest te…)
-  ⎿  All done! ✨ 🍰 ✨
-     5 files would be left unchanged.
-     ---flake8---
-     … +20 lines (ctrl+o to expand)
+● Now let me run the tests to verify:
 
-● All green: black clean, flake8 clean, 9/9 tests passing.
+● Bash(source venv/bin/activate 2>/dev/null; python -m pytest tests/ -v 2>&1 | tail -60)
+  ⎿  ============================= test session starts ==============================
+     platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/asura/.cache/claude-hfi/-m
+     nt-e-align-weather-cli/B/venv/bin/python
+     … +21 lines (ctrl+o to expand)
 
-  Changes
+● All 18 tests pass. Let me run lint/format checks:
 
-  src/exceptions.py — re-parented the hierarchy:
-  WeatherCLIError
-  └── APIError
-      └── LocationNotFoundError
-  Any except APIError: handler now also catches LocationNotFoundError, while callers that want to
-  distinguish bad-coordinate failures can still except LocationNotFoundError: specifically.
+● Bash(source venv/bin/activate 2>/dev/null; black src tests 2>&1 && flake8 src tests 2>&1)
+  ⎿  reformatted /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/api_client.py
 
-  src/api_client.py — the 400 branch now passes status_code=400 when raising LocationNotFoundError, since
-  the new parent class tracks that field and it's information we already have.
+     All done! ✨ 🍰 ✨
+     1 file reformatted, 4 files left unchanged.
 
-  tests/test_api_client.py — two test changes:
-  - Strengthened test_invalid_coordinates_raise_location_not_found to assert isinstance(excinfo.value,
-  APIError) and status_code == 400, locking in the new hierarchy as part of the contract so a future
-  regression (e.g. someone reverting the parent) fails loudly.
-  - Added test_invalid_coordinates_without_reason_uses_fallback_message — sends HTTP 400 with {"error":
-  True} (no reason) and asserts the fallback string "Invalid coordinates for weather lookup" is used. This
-   covers the previously-untested branch of the reason or "…" fallback in fetch_current_weather.
+● All tests pass and code is formatted/lint-clean.
 
-  Final tally: 9 tests, all passing.
+  Summary
 
-❯ The fetch_current_weather docstring still says LocationNotFoundError is raised when "Open-Meteo returns
-   HTTP 400 with a reason field". Update that docstring to reflect that the reason is optional and a
-  fallback message is used when absent. Also the new
-  test_invalid_coordinates_without_reason_uses_fallback_message does not assert isinstance(excinfo.value,
-   APIError) the way the other 400 test does. Add that assertion for consistency so both 400 tests serve
-  as regression guards for the hierarchy.
+  src/exceptions.py — Added CityNotFoundError(APIError) for unresolved cities (zero results or malformed
+  payload); subclass of APIError so broad catches continue to work.
+
+  src/api_client.py:
+  - Added OPEN_METEO_GEOCODING_URL constant pointing at https://geocoding-api.open-meteo.com/v1/search.
+  - Added frozen Location dataclass (latitude, longitude, name) with a display_name property for terminal
+   rendering. Its latitude/longitude feed directly into fetch_current_weather.
+  - Added geocode_city(city: str) -> Location mirroring the existing async architecture: uses the shared
+  httpx.AsyncClient when in async with, otherwise spins up a transient one.
+  - Extracted _acquire_client() helper to share client lifecycle between endpoints.
+  - All network errors (httpx.RequestError, which covers timeouts), non-2xx responses, and JSON parse
+  failures are caught at the client boundary and wrapped in APIError; no raw httpx or stdlib exceptions
+  leak.
+  - Empty/whitespace input short-circuits to CityNotFoundError without a network call.
+  - _parse_geocoding_result composes a fully qualified display string like "Berlin, Land Berlin,
+  Germany".
+
+  tests/test_api_client.py — 9 new tests (all mocked via respx, no live network): successful resolution,
+  empty-name guard, missing results key, empty results list, malformed JSON, malformed result entry, 5xx
+  server error, network timeout wrapping, and an end-to-end geocode→weather chain proving the coordinates
+   flow into fetch_current_weather.
+
+  18/18 tests pass; black + flake8 clean.
+
+❯ The _acquire_client helper returns a raw tuple forcing every caller to duplicate try/finally cleanup
+  logic which undermines the refactoring benefit. Convert it into an async context manager so both
+  geocode_city and fetch_current_weather use a clean async with block for client lifecycle. The module
+  docstring still reads 'Async client for the Open-Meteo weather API' but geocoding support was added so
+   that needs updating. There is also a missing test case for when the geocoding results list contains a
+   non-dict entry, that edge case should be covered in the test suite.
 
   Read 1 file (ctrl+o to expand)
 
 ● Update(src/api_client.py)
-  ⎿  Added 4 lines, removed 2 lines
-      79
-      80          Raises:
-      81              LocationNotFoundError: If the API rejects the coordinates as
-      82 -                invalid (Open-Meteo returns HTTP 400 with a ``reason`` field
-      83 -                for out-of-range coordinates).
-      82 +                invalid (HTTP 400). The error body's ``reason`` field is
-      83 +                used as the message when present; otherwise a generic
-      84 +                fallback message is used. ``LocationNotFoundError`` is a
-      85 +                subclass of ``APIError``.
-      86              APIError: For any other failure - network errors, non-2xx
-      87                  responses, or payloads that cannot be parsed.
-      88          """
+  ⎿  Added 3 lines, removed 2 lines
+      1 -"""Async client for the Open-Meteo weather API."""
+      1 +"""Async client for the Open-Meteo weather and geocoding APIs."""
+      2
+      3 +from contextlib import asynccontextmanager
+      4  from dataclasses import dataclass
+      5  from types import TracebackType
+      5 -from typing import Any, Dict, List, Optional, Tuple, Type
+      6 +from typing import Any, AsyncIterator, Dict, List, Optional, Type
+      7
+      8  import httpx
+      9
+
+● Update(src/api_client.py)
+  ⎿  Added 15 lines, removed 14 lines
+      104              APIError: For any other failure - network errors, non-2xx
+      105                  responses, or payloads that cannot be parsed.
+      106          """
+      107 -        client, close_after = self._acquire_client()
+      108 -
+      107          params: Dict[str, Any] = {
+      108              "latitude": latitude,
+      109              "longitude": longitude,
+      110              "current_weather": "true",
+      111          }
+      112
+      115 -        try:
+      113 +        async with self._request_client() as client:
+      114              try:
+      115                  response: httpx.Response = await client.get(
+      116                      self._base_url, params=params
+     ...
+      146                  raise APIError("Weather API returned an unexpected JSON structure")
+      147
+      148              return _parse_current_weather(payload)
+      151 -        finally:
+      152 -            if close_after:
+      153 -                await client.aclose()
+      149
+      155 -    def _acquire_client(self) -> Tuple[httpx.AsyncClient, bool]:
+      156 -        """Return ``(client, close_after)`` for a single request.
+      150 +    @asynccontextmanager
+      151 +    async def _request_client(self) -> AsyncIterator[httpx.AsyncClient]:
+      152 +        """Yield an ``httpx.AsyncClient`` scoped to a single request.
+      153
+      158 -        If the instance owns a persistent client (via ``async with``), that
+      159 -        is returned and ``close_after`` is ``False``. Otherwise a transient
+      160 -        ``httpx.AsyncClient`` is created and the caller is expected to close
+      161 -        it when done.
+      154 +        If the instance owns a persistent client (via ``async with
+      155 +        WeatherClient()``), that client is yielded and left open. Otherwise
+      156 +        a transient client is created and closed when the ``async with``
+      157 +        block exits, regardless of success or exception.
+      158          """
+      159          if self._client is not None:
+      164 -            return self._client, False
+      165 -        return httpx.AsyncClient(timeout=self._timeout), True
+      160 +            yield self._client
+      161 +            return
+      162 +        transient: httpx.AsyncClient = httpx.AsyncClient(timeout=self._timeout)
+      163 +        try:
+      164 +            yield transient
+      165 +        finally:
+      166 +            await transient.aclose()
+      167
+      168      async def geocode_city(self, city: str) -> Location:
+      169          """Resolve a ``city`` name to a :class:`Location`.
+
+● Update(src/api_client.py)
+  ⎿  Added 1 line, removed 6 lines
+      184          if not city or not city.strip():
+      185              raise CityNotFoundError("City name must be a non-empty string")
+      186
+      187 -        client, close_after = self._acquire_client()
+      188 -
+      187          params: Dict[str, Any] = {
+      188              "name": city,
+      189              "count": 1,
+      190              "format": "json",
+      191          }
+      192
+      195 -        try:
+      193 +        async with self._request_client() as client:
+      194              try:
+      195                  response: httpx.Response = await client.get(
+      196                      self._geocoding_url, params=params
+     ...
+      219                  raise APIError("Geocoding API returned an unexpected JSON structure")
+      220
+      221              return _parse_geocoding_result(payload, city)
+      224 -        finally:
+      225 -            if close_after:
+      226 -                await client.aclose()
+      222
+      223
+      224  def _extract_error_reason(response: httpx.Response) -> Optional[str]:
+
+● Now add the missing test for non-dict entry in results list:
 
 ● Update(tests/test_api_client.py)
-  ⎿  Added 2 lines
-      117              await client.fetch_current_weather(999.0, 0.0)
-      118
-      119      assert "Invalid coordinates for weather lookup" in str(excinfo.value)
-      120 +    # Must also be catchable as APIError so broad handlers still work.
-      121 +    assert isinstance(excinfo.value, APIError)
-      122      assert excinfo.value.status_code == 400
-      123
-      124
+  ⎿  Added 18 lines
+      353
+      354  @pytest.mark.asyncio
+      355  @respx.mock
+      356 +async def test_geocode_city_non_dict_result_entry_raises_api_error() -> None:
+      357 +    """A ``results`` list whose first entry is not a dict raises ``APIError``."""
+      358 +    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+      359 +        return_value=httpx.Response(
+      360 +            200,
+      361 +            json={"results": ["not-a-dict"]},
+      362 +        ),
+      363 +    )
+      364 +
+      365 +    async with WeatherClient() as client:
+      366 +        with pytest.raises(APIError, match="malformed result entry"):
+      367 +            await client.geocode_city("Berlin")
+      368 +        # Must not be the narrower CityNotFoundError - results is non-empty.
+      369 +        # (Separate assertion for clarity; see test above for empty case.)
+      370 +
+      371 +
+      372 +@pytest.mark.asyncio
+      373 +@respx.mock
+      374  async def test_geocode_city_server_error_raises_api_error() -> None:
+      375      respx.get(OPEN_METEO_GEOCODING_URL).mock(
+      376          return_value=httpx.Response(503, text="Service Unavailable"),
 
-● Bash(./venv/bin/black --check src tests 2>&1 && echo "---flake8---" && ./venv/bin/flake8 src tests &&
-      echo "flake8 OK" && echo "---pytest---" && ./venv/bin/pytest te…)
+● Bash(source venv/bin/activate 2>/dev/null; black src tests && flake8 src tests && python -m pytest
+      tests/ -v 2>&1 | tail -30)
   ⎿  All done! ✨ 🍰 ✨
-     5 files would be left unchanged.
-     ---flake8---
+     5 files left unchanged.
+     ============================= test session starts ==============================
+     … +23 lines (ctrl+o to expand)
+
+● All 19 tests pass, black and flake8 clean.
+
+  Changes:
+  - src/api_client.py:1 — Module docstring updated to "Async client for the Open-Meteo weather and
+  geocoding APIs.".
+  - src/api_client.py — Replaced _acquire_client() -> Tuple[...] with _request_client(), an
+  @asynccontextmanager that yields an httpx.AsyncClient. Transient clients are closed in the helper's
+  finally; the persistent context-manager-owned client is yielded untouched. Both fetch_current_weather
+  and geocode_city now use a single async with self._request_client() as client: block — no more
+  duplicated try/finally or close_after bookkeeping at call sites.
+  - tests/test_api_client.py — Added test_geocode_city_non_dict_result_entry_raises_api_error covering
+  the "results": ["not-a-dict"] edge case (hits the isinstance(first, dict) guard and raises APIError
+  with "malformed result entry").
+
+❯ Both fetch_current_weather and geocode_city repeat the same error handling pattern for network errors,
+   HTTP status codes, JSON parsing, and dict structure validation. Extract a shared private async method
+   that takes a URL and params dict, performs the HTTP GET through _request_client, handles all the
+  error wrapping logic in one place, and returns the validated dict payload. Each public method should
+  call this shared method and then pass the payload to its respective parser. Existing tests should pass
+   without modification since external behavior remains unchanged.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(src/api_client.py)
+  ⎿  Added 1 line, removed 1 line
+      3  from contextlib import asynccontextmanager
+      4  from dataclasses import dataclass
+      5  from types import TracebackType
+      6 -from typing import Any, AsyncIterator, Dict, List, Optional, Type
+      6 +from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Type
+      7
+      8  import httpx
+      9
+
+● Update(src/api_client.py)
+  ⎿  Added 8 lines, removed 29 lines
+      110              "current_weather": "true",
+      111          }
+      112
+      113 -        async with self._request_client() as client:
+      114 -            try:
+      115 -                response: httpx.Response = await client.get(
+      116 -                    self._base_url, params=params
+      117 -                )
+      118 -            except httpx.RequestError as exc:
+      119 -                raise APIError(
+      120 -                    f"Network error while contacting weather API: {exc}"
+      121 -                ) from exc
+      122 -
+      113 +        def _weather_status_handler(response: httpx.Response) -> None:
+      114              if response.status_code == 400:
+      115                  reason: Optional[str] = _extract_error_reason(response)
+      116                  raise LocationNotFoundError(
+     ...
+      118                      status_code=400,
+      119                  )
+      120
+      130 -            if response.status_code >= 400:
+      131 -                detail: str = (
+      132 -                    _extract_error_reason(response) or response.reason_phrase or ""
+      133 -                )
+      134 -                message: str = (
+      135 -                    f"Weather API returned HTTP {response.status_code}"
+      136 -                    f"{': ' + detail if detail else ''}"
+      137 -                )
+      138 -                raise APIError(message, status_code=response.status_code)
+      121 +        payload: Dict[str, Any] = await self._get_json(
+      122 +            self._base_url,
+      123 +            params,
+      124 +            api_name="Weather",
+      125 +            status_handler=_weather_status_handler,
+      126 +        )
+      127 +        return _parse_current_weather(payload)
+      128
+      140 -            try:
+      141 -                payload: Any = response.json()
+      142 -            except ValueError as exc:
+      143 -                raise APIError("Weather API returned invalid JSON") from exc
+      144 -
+      145 -            if not isinstance(payload, dict):
+      146 -                raise APIError("Weather API returned an unexpected JSON structure")
+      147 -
+      148 -            return _parse_current_weather(payload)
+      149 -
+      129      @asynccontextmanager
+      130      async def _request_client(self) -> AsyncIterator[httpx.AsyncClient]:
+      131          """Yield an ``httpx.AsyncClient`` scoped to a single request.
+
+● Update(src/api_client.py)
+  ⎿  Added 38 lines, removed 8 lines
+      169              "format": "json",
+      170          }
+      171
+      172 +        payload: Dict[str, Any] = await self._get_json(
+      173 +            self._geocoding_url,
+      174 +            params,
+      175 +            api_name="Geocoding",
+      176 +        )
+      177 +        return _parse_geocoding_result(payload, city)
+      178 +
+      179 +    async def _get_json(
+      180 +        self,
+      181 +        url: str,
+      182 +        params: Dict[str, Any],
+      183 +        api_name: str,
+      184 +        status_handler: Optional[Callable[[httpx.Response], None]] = None,
+      185 +    ) -> Dict[str, Any]:
+      186 +        """Perform a GET against ``url`` and return the validated JSON dict.
+      187 +
+      188 +        Wraps all boundary failures (network errors, non-2xx responses,
+      189 +        malformed JSON, non-dict payloads) in :class:`APIError` so callers
+      190 +        never see raw ``httpx`` or ``ValueError`` exceptions. ``api_name`` is
+      191 +        interpolated into error messages (e.g. ``"Weather API returned..."``).
+      192 +
+      193 +        If ``status_handler`` is provided, it is invoked after the response
+      194 +        is received and before the generic ``>= 400`` check; it may raise a
+      195 +        more specific :class:`APIError` subclass for known status codes
+      196 +        (e.g. mapping HTTP 400 to :class:`LocationNotFoundError`). If it
+      197 +        returns normally, generic status handling proceeds.
+      198 +        """
+      199          async with self._request_client() as client:
+      200              try:
+      174 -                response: httpx.Response = await client.get(
+      175 -                    self._geocoding_url, params=params
+      176 -                )
+      201 +                response: httpx.Response = await client.get(url, params=params)
+      202              except httpx.RequestError as exc:
+      203                  raise APIError(
+      179 -                    f"Network error while contacting geocoding API: {exc}"
+      204 +                    f"Network error while contacting {api_name.lower()} API: {exc}"
+      205                  ) from exc
+      206
+      207 +            if status_handler is not None:
+      208 +                status_handler(response)
+      209 +
+      210              if response.status_code >= 400:
+      211                  detail: str = (
+      212                      _extract_error_reason(response) or response.reason_phrase or ""
+      213                  )
+      214                  message: str = (
+      187 -                    f"Geocoding API returned HTTP {response.status_code}"
+      215 +                    f"{api_name} API returned HTTP {response.status_code}"
+      216                      f"{': ' + detail if detail else ''}"
+      217                  )
+      218                  raise APIError(message, status_code=response.status_code)
+     ...
+      220              try:
+      221                  payload: Any = response.json()
+      222              except ValueError as exc:
+      195 -                raise APIError("Geocoding API returned invalid JSON") from exc
+      223 +                raise APIError(f"{api_name} API returned invalid JSON") from exc
+      224
+      225              if not isinstance(payload, dict):
+      198 -                raise APIError("Geocoding API returned an unexpected JSON structure")
+      226 +                raise APIError(
+      227 +                    f"{api_name} API returned an unexpected JSON structure"
+      228 +                )
+      229
+      200 -            return _parse_geocoding_result(payload, city)
+      230 +            return payload
+      231
+      232
+      233  def _extract_error_reason(response: httpx.Response) -> Optional[str]:
+
+● Bash(source venv/bin/activate 2>/dev/null; black src tests && flake8 src tests && python -m pytest
+      tests/ -v 2>&1 | tail -25)
+  ⎿  reformatted /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B/src/api_client.py
+
+     All done! ✨ 🍰 ✨
      … +20 lines (ctrl+o to expand)
 
-● Done. Both tweaks applied:
+● All 19 tests pass unchanged, black/flake8 clean.
 
-  - src/api_client.py — the LocationNotFoundError entry in the Raises: block now notes that reason is
-  optional with a fallback message, and explicitly calls out the APIError subclass relationship so readers
-   of the docstring see the hierarchy without having to open exceptions.py.
-  - tests/test_api_client.py — test_invalid_coordinates_without_reason_uses_fallback_message now includes
-  the isinstance(excinfo.value, APIError) assertion (with the same comment as the sibling test), so both
-  400-path tests serve as parallel regression guards for the hierarchy.
+  Refactor: Introduced WeatherClient._get_json(url, params, api_name, status_handler=None) which owns the
+   entire I/O → validated-dict pipeline: opens the request-scoped client, catches httpx.RequestError into
+   APIError, runs an optional status_handler callback for endpoint-specific status mapping, applies the
+  generic >= 400 check, parses JSON (wrapping ValueError), and enforces the dict-shape invariant. The
+  api_name parameter is interpolated into every error message so callers get endpoint-specific wording
+  for free.
 
-  All checks still green: black clean, flake8 clean, 9/9 tests passing.
+  - fetch_current_weather now just builds its params, defines a 2-line _weather_status_handler that
+  raises LocationNotFoundError on HTTP 400, delegates to _get_json(..., api_name="Weather",
+  status_handler=...), and hands the dict to _parse_current_weather.
+  - geocode_city is now just input validation + params + _get_json(..., api_name="Geocoding") +
+  _parse_geocoding_result.
 
-* Transfiguring… (28s · ↓ 728 tokens)
-asura@DESKTOP-IVGG5QO:~/.cache/claude-hfi/-mnt-e-align-weather-cli/B$ tmux capture-pane -pS -1000 > output
-.txt
+  All four duplicated concerns (network wrapping, HTTP status handling, JSON parsing, dict validation)
+  live in exactly one place. External behavior — exception types, status codes, message phrasing — is
+  unchanged, which is why the entire 19-test suite passed without modification.
+
+✶ Hyperspacing… (57s · ↓ 2.8k tokens)
+  ⎿  Tip: Use /btw to ask a quick side question without interrupting Claude's current work
+asura@DESKTOP-IVGG5QO:~/.cache/claude-hfi/-mnt-e-align-weather-cli/B$ tmux capture-pane -pS -1000 > outpu
+t.txt
 
