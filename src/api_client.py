@@ -3,11 +3,24 @@
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Type
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncIterator,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+)
 
 import httpx
 
 from src.exceptions import APIError, CityNotFoundError, LocationNotFoundError
+
+if TYPE_CHECKING:
+    from src.cache import WeatherCache
 
 OPEN_METEO_URL: str = "https://api.open-meteo.com/v1/forecast"
 OPEN_METEO_GEOCODING_URL: str = "https://geocoding-api.open-meteo.com/v1/search"
@@ -63,12 +76,19 @@ class WeatherClient:
         timeout: float = DEFAULT_TIMEOUT,
         client: Optional[httpx.AsyncClient] = None,
         geocoding_url: str = OPEN_METEO_GEOCODING_URL,
+        cache: Optional["WeatherCache"] = None,
     ) -> None:
         self._base_url: str = base_url
         self._geocoding_url: str = geocoding_url
         self._timeout: float = timeout
         self._client: Optional[httpx.AsyncClient] = client
         self._owns_client: bool = client is None
+        self._cache: Optional["WeatherCache"] = cache
+
+    @property
+    def cache(self) -> Optional["WeatherCache"]:
+        """The cache bound to this client, or ``None`` if caching is off."""
+        return self._cache
 
     async def __aenter__(self) -> "WeatherClient":
         if self._client is None:
@@ -175,6 +195,34 @@ class WeatherClient:
             api_name="Geocoding",
         )
         return _parse_geocoding_result(payload, city)
+
+    async def fetch_weather_for_city(
+        self, city: str
+    ) -> Tuple[Location, CurrentWeather]:
+        """Resolve ``city`` and fetch its current weather.
+
+        If this client was constructed with a :class:`~src.cache.WeatherCache`,
+        a fresh cache hit short-circuits the lookup — neither the geocoding
+        API nor the weather API is contacted. On a miss the resolved pair
+        is written back to the cache. Cache I/O failures are absorbed by
+        :class:`~src.cache.WeatherCache` itself, so any ``APIError`` raised
+        here originates from the live request. Clients constructed without
+        a cache behave exactly as before.
+        """
+        if self._cache is not None:
+            hit: Optional[Tuple[Location, CurrentWeather]] = self._cache.get(city)
+            if hit is not None:
+                return hit
+
+        location: Location = await self.geocode_city(city)
+        weather: CurrentWeather = await self.fetch_current_weather(
+            location.latitude, location.longitude
+        )
+
+        if self._cache is not None:
+            self._cache.set(city, location, weather)
+
+        return location, weather
 
     async def _get_json(
         self,

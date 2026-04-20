@@ -36,3 +36,15 @@ class CityNotFoundError(APIError):
     the geocoding service returns zero results and when the response payload
     is structurally valid but contains no usable match.
     """
+
+
+class CacheError(WeatherCLIError):
+    """Raised for unrecoverable cache subsystem failures.
+
+    The cache layer is designed to be best-effort: routine issues such as
+    missing files, permission denials, or corrupted entries are handled
+    silently (treated as a miss) so that the caller falls back to a live
+    network request. ``CacheError`` is reserved for programmer errors
+    (e.g. invalid construction parameters) where silent degradation would
+    mask a real bug.
+    """
