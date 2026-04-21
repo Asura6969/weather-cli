@@ -17,13 +17,19 @@ from typing import (
 
 import httpx
 
-from src.exceptions import APIError, CityNotFoundError, LocationNotFoundError
+from src.exceptions import (
+    APIError,
+    CityNotFoundError,
+    GeolocationError,
+    LocationNotFoundError,
+)
 
 if TYPE_CHECKING:
     from src.cache import WeatherCache
 
 OPEN_METEO_URL: str = "https://api.open-meteo.com/v1/forecast"
 OPEN_METEO_GEOCODING_URL: str = "https://geocoding-api.open-meteo.com/v1/search"
+IP_GEOLOCATION_URL: str = "https://ipapi.co/json/"
 DEFAULT_TIMEOUT: float = 10.0
 
 
@@ -77,9 +83,11 @@ class WeatherClient:
         client: Optional[httpx.AsyncClient] = None,
         geocoding_url: str = OPEN_METEO_GEOCODING_URL,
         cache: Optional["WeatherCache"] = None,
+        ip_geolocation_url: str = IP_GEOLOCATION_URL,
     ) -> None:
         self._base_url: str = base_url
         self._geocoding_url: str = geocoding_url
+        self._ip_geolocation_url: str = ip_geolocation_url
         self._timeout: float = timeout
         self._client: Optional[httpx.AsyncClient] = client
         self._owns_client: bool = client is None
@@ -195,6 +203,58 @@ class WeatherClient:
             api_name="Geocoding",
         )
         return _parse_geocoding_result(payload, city)
+
+    async def detect_current_city(self) -> str:
+        """Detect the caller's current city via an IP geolocation lookup.
+
+        Issues a single GET against the configured IP geolocation service
+        and returns the ``city`` field from the response. Any transport
+        failure (timeout, DNS error, connection refused), non-2xx status,
+        invalid JSON, or missing/empty ``city`` field is surfaced as
+        :class:`~src.exceptions.GeolocationError` so the CLI can prompt
+        the user to supply a manual location instead of crashing with a
+        raw traceback.
+        """
+        async with self._request_client() as client:
+            try:
+                response: httpx.Response = await client.get(self._ip_geolocation_url)
+            except httpx.TimeoutException as exc:
+                # Timeout is a subclass of RequestError, so this branch must
+                # come first. Distinguishing "slow" from "unreachable" gives
+                # the user a clearer hint about whether to retry or fall back
+                # to a manual argument.
+                raise GeolocationError(
+                    f"IP geolocation service timed out: {exc}"
+                ) from exc
+            except httpx.RequestError as exc:
+                raise GeolocationError(
+                    f"Could not reach IP geolocation service: {exc}"
+                ) from exc
+
+            if response.status_code >= 400:
+                raise GeolocationError(
+                    "IP geolocation service returned " f"HTTP {response.status_code}"
+                )
+
+            try:
+                payload: Any = response.json()
+            except ValueError as exc:
+                raise GeolocationError(
+                    "IP geolocation service returned invalid JSON"
+                ) from exc
+
+            if not isinstance(payload, dict):
+                raise GeolocationError(
+                    "IP geolocation service returned an unexpected payload"
+                )
+
+            city: Any = payload.get("city")
+            if not isinstance(city, str) or not city.strip():
+                raise GeolocationError(
+                    "IP geolocation response did not include a city name"
+                )
+
+            return city.strip()
 
     async def fetch_weather_for_city(
         self, city: str

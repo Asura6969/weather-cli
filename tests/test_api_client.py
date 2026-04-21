@@ -11,13 +11,19 @@ import pytest
 import respx
 
 from src.api_client import (
+    IP_GEOLOCATION_URL,
     OPEN_METEO_GEOCODING_URL,
     OPEN_METEO_URL,
     CurrentWeather,
     Location,
     WeatherClient,
 )
-from src.exceptions import APIError, CityNotFoundError, LocationNotFoundError
+from src.exceptions import (
+    APIError,
+    CityNotFoundError,
+    GeolocationError,
+    LocationNotFoundError,
+)
 
 
 @pytest.fixture
@@ -397,3 +403,155 @@ async def test_geocode_city_network_error_is_wrapped_as_api_error() -> None:
     assert "Network error" in str(excinfo.value)
     assert excinfo.value.status_code is None
     assert isinstance(excinfo.value.__cause__, httpx.ConnectTimeout)
+
+
+# ---------------------------------------------------------------------------
+# IP geolocation tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_detect_current_city_returns_city_from_payload() -> None:
+    route = respx.get(IP_GEOLOCATION_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "ip": "203.0.113.7",
+                "city": "Berlin",
+                "region": "Land Berlin",
+                "country_name": "Germany",
+            },
+        )
+    )
+
+    async with WeatherClient() as client:
+        city: str = await client.detect_current_city()
+
+    assert route.called
+    assert city == "Berlin"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_detect_current_city_strips_whitespace() -> None:
+    respx.get(IP_GEOLOCATION_URL).mock(
+        return_value=httpx.Response(200, json={"city": "  Berlin  "}),
+    )
+
+    async with WeatherClient() as client:
+        assert await client.detect_current_city() == "Berlin"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_detect_current_city_connect_error_raises_geolocation_error() -> None:
+    """A DNS/connect failure surfaces the 'unreachable' wording, not 'timed out'."""
+    respx.get(IP_GEOLOCATION_URL).mock(
+        side_effect=httpx.ConnectError("connection refused"),
+    )
+
+    async with WeatherClient() as client:
+        with pytest.raises(GeolocationError) as excinfo:
+            await client.detect_current_city()
+
+    message: str = str(excinfo.value)
+    assert "Could not reach IP geolocation service" in message
+    assert "timed out" not in message
+    assert isinstance(excinfo.value.__cause__, httpx.ConnectError)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_detect_current_city_timeout_raises_geolocation_error() -> None:
+    """Timeouts surface a distinct message from generic connectivity errors."""
+    respx.get(IP_GEOLOCATION_URL).mock(
+        side_effect=httpx.ReadTimeout("read timed out"),
+    )
+
+    async with WeatherClient() as client:
+        with pytest.raises(GeolocationError) as excinfo:
+            await client.detect_current_city()
+
+    assert isinstance(excinfo.value.__cause__, httpx.ReadTimeout)
+    # Timeout wording is specific ("timed out"), not the generic
+    # "could not reach" message used for DNS/connect errors.
+    message: str = str(excinfo.value)
+    assert "timed out" in message
+    assert "Could not reach" not in message
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_detect_current_city_connect_timeout_uses_timeout_wording() -> None:
+    """``ConnectTimeout`` is a ``TimeoutException``, so the timeout path wins."""
+    respx.get(IP_GEOLOCATION_URL).mock(
+        side_effect=httpx.ConnectTimeout("connect timed out"),
+    )
+
+    async with WeatherClient() as client:
+        with pytest.raises(GeolocationError) as excinfo:
+            await client.detect_current_city()
+
+    assert "timed out" in str(excinfo.value)
+    assert isinstance(excinfo.value.__cause__, httpx.ConnectTimeout)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_detect_current_city_http_error_raises_geolocation_error() -> None:
+    respx.get(IP_GEOLOCATION_URL).mock(
+        return_value=httpx.Response(503, text="Service Unavailable"),
+    )
+
+    async with WeatherClient() as client:
+        with pytest.raises(GeolocationError, match="HTTP 503"):
+            await client.detect_current_city()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_detect_current_city_invalid_json_raises_geolocation_error() -> None:
+    respx.get(IP_GEOLOCATION_URL).mock(
+        return_value=httpx.Response(200, text="<html>not json</html>"),
+    )
+
+    async with WeatherClient() as client:
+        with pytest.raises(GeolocationError, match="invalid JSON"):
+            await client.detect_current_city()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_detect_current_city_missing_city_field_raises() -> None:
+    respx.get(IP_GEOLOCATION_URL).mock(
+        return_value=httpx.Response(200, json={"ip": "203.0.113.7"}),
+    )
+
+    async with WeatherClient() as client:
+        with pytest.raises(GeolocationError, match="did not include a city"):
+            await client.detect_current_city()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_detect_current_city_empty_city_field_raises() -> None:
+    respx.get(IP_GEOLOCATION_URL).mock(
+        return_value=httpx.Response(200, json={"city": "   "}),
+    )
+
+    async with WeatherClient() as client:
+        with pytest.raises(GeolocationError, match="did not include a city"):
+            await client.detect_current_city()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_detect_current_city_non_dict_payload_raises() -> None:
+    respx.get(IP_GEOLOCATION_URL).mock(
+        return_value=httpx.Response(200, json=["not", "a", "dict"]),
+    )
+
+    async with WeatherClient() as client:
+        with pytest.raises(GeolocationError, match="unexpected payload"):
+            await client.detect_current_city()

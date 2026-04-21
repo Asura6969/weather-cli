@@ -15,12 +15,13 @@ from rich.console import Console
 
 from src import cli
 from src.api_client import (
+    IP_GEOLOCATION_URL,
     OPEN_METEO_GEOCODING_URL,
     OPEN_METEO_URL,
     CurrentWeather,
     Location,
 )
-from src.exceptions import APIError, CityNotFoundError
+from src.exceptions import APIError, CityNotFoundError, GeolocationError
 
 
 @pytest.fixture(autouse=True)
@@ -202,12 +203,13 @@ def test_main_uses_cache_on_second_invocation(
     assert wx_route.call_count == 1
 
 
-def test_build_parser_requires_city_positional() -> None:
+def test_build_parser_city_is_optional() -> None:
+    """The city argument is optional; omitting it yields ``city=None``."""
     parser = cli.build_parser()
-    with pytest.raises(SystemExit):
-        parser.parse_args([])
-    ns = parser.parse_args(["Tokyo"])
-    assert ns.city == "Tokyo"
+    ns_empty = parser.parse_args([])
+    assert ns_empty.city is None
+    ns_explicit = parser.parse_args(["Tokyo"])
+    assert ns_explicit.city == "Tokyo"
 
 
 def test_describe_weather_code_known_and_unknown() -> None:
@@ -253,6 +255,171 @@ def test_wind_style_thresholds() -> None:
 )
 def test_compass_point(degrees: float, expected: str) -> None:
     assert cli._compass_point(degrees) == expected
+
+
+@respx.mock
+def test_main_auto_detects_city_when_argument_omitted(
+    capsys: pytest.CaptureFixture[str],
+    geocode_payload: Dict[str, Any],
+    weather_payload: Dict[str, Any],
+) -> None:
+    """Omitting the city triggers IP geolocation and renders a notice."""
+    ip_route = respx.get(IP_GEOLOCATION_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "ip": "203.0.113.7",
+                "city": "Berlin",
+                "region": "Land Berlin",
+                "country_name": "Germany",
+            },
+        )
+    )
+    geo_route = respx.get(OPEN_METEO_GEOCODING_URL).mock(
+        return_value=httpx.Response(200, json=geocode_payload)
+    )
+    wx_route = respx.get(OPEN_METEO_URL).mock(
+        return_value=httpx.Response(200, json=weather_payload)
+    )
+
+    exit_code: int = cli.main([])
+
+    assert exit_code == 0
+    assert ip_route.called
+    assert geo_route.called
+    assert wx_route.called
+
+    captured = capsys.readouterr()
+    assert "Auto-detected location" in captured.out
+    assert "Berlin" in captured.out
+    assert "Berlin, Land Berlin, Germany" in captured.out
+    assert captured.err == ""
+
+
+@respx.mock
+def test_main_auto_detect_network_failure_instructs_manual_argument(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A connectivity error during IP lookup prompts manual fallback."""
+    ip_route = respx.get(IP_GEOLOCATION_URL).mock(
+        side_effect=httpx.ConnectError("connection refused")
+    )
+    geo_route = respx.get(OPEN_METEO_GEOCODING_URL).mock(
+        return_value=httpx.Response(200, json={"results": []})
+    )
+
+    exit_code: int = cli.main([])
+
+    assert exit_code == 1
+    assert ip_route.called
+    # The geocoding/weather pipeline must not be touched when detection fails.
+    assert not geo_route.called
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Location detection failed" in captured.err
+    assert "weather-cli Berlin" in captured.err
+    assert "Traceback" not in captured.err
+
+
+@respx.mock
+def test_main_auto_detect_timeout_instructs_manual_argument(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A read timeout on IP lookup surfaces as a formatted panel, not a crash."""
+    respx.get(IP_GEOLOCATION_URL).mock(side_effect=httpx.ReadTimeout("read timed out"))
+
+    exit_code: int = cli.main([])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Location detection failed" in captured.err
+    assert "weather-cli Berlin" in captured.err
+    assert "Traceback" not in captured.err
+
+
+@respx.mock
+def test_main_auto_detect_missing_city_field_instructs_manual_argument(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A structurally valid response with no ``city`` field fails gracefully."""
+    respx.get(IP_GEOLOCATION_URL).mock(
+        return_value=httpx.Response(200, json={"ip": "203.0.113.7"}),
+    )
+
+    exit_code: int = cli.main([])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Location detection failed" in captured.err
+
+
+@respx.mock
+def test_main_auto_detected_lookup_populates_cache(
+    isolated_cache: Path,
+    geocode_payload: Dict[str, Any],
+    weather_payload: Dict[str, Any],
+) -> None:
+    """Auto-detected lookups must also flow through the caching pipeline.
+
+    Mirrors :func:`test_main_populates_cache_on_miss` but invokes ``main``
+    without a city argument so the run goes through ``detect_current_city``
+    before reaching ``fetch_weather_for_city``.
+    """
+    respx.get(IP_GEOLOCATION_URL).mock(
+        return_value=httpx.Response(200, json={"city": "Berlin"})
+    )
+    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+        return_value=httpx.Response(200, json=geocode_payload)
+    )
+    respx.get(OPEN_METEO_URL).mock(
+        return_value=httpx.Response(200, json=weather_payload)
+    )
+
+    assert not isolated_cache.exists()
+    assert cli.main([]) == 0
+    entries = list(isolated_cache.glob("*.json"))
+    assert len(entries) == 1
+
+
+@respx.mock
+def test_main_with_explicit_city_does_not_call_ip_geolocation(
+    geocode_payload: Dict[str, Any],
+    weather_payload: Dict[str, Any],
+) -> None:
+    """When a city is supplied explicitly the IP lookup is skipped."""
+    ip_route = respx.get(IP_GEOLOCATION_URL).mock(
+        return_value=httpx.Response(200, json={"city": "Berlin"})
+    )
+    respx.get(OPEN_METEO_GEOCODING_URL).mock(
+        return_value=httpx.Response(200, json=geocode_payload)
+    )
+    respx.get(OPEN_METEO_URL).mock(
+        return_value=httpx.Response(200, json=weather_payload)
+    )
+
+    assert cli.main(["Berlin"]) == 0
+    assert not ip_route.called
+
+
+def test_render_geolocation_error_has_manual_fallback_hint() -> None:
+    console = Console(record=True, stderr=True, width=120)
+    cli._render_geolocation_error(console, GeolocationError("IP lookup timed out"))
+    output: str = console.export_text()
+    assert "Location detection failed" in output
+    assert "IP lookup timed out" in output
+    assert "weather-cli Berlin" in output
+
+
+def test_render_auto_detected_notice_mentions_ip_and_city() -> None:
+    console = Console(record=True, width=120)
+    cli._render_auto_detected_notice(console, "Berlin")
+    output: str = console.export_text()
+    assert "Auto-detected location" in output
+    assert "Berlin" in output
+    assert "IP" in output
 
 
 def test_render_error_headings() -> None:

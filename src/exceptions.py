@@ -38,6 +38,16 @@ class CityNotFoundError(APIError):
     """
 
 
+class GeolocationError(WeatherCLIError):
+    """Raised when automatic IP-based location detection fails.
+
+    Covers timeouts, connectivity failures, non-2xx responses, and
+    malformed payloads from the IP geolocation service. Callers are
+    expected to prompt the user to supply a manual location argument
+    rather than propagating the error as a raw traceback.
+    """
+
+
 class CacheError(WeatherCLIError):
     """Raised for unrecoverable cache subsystem failures.
 

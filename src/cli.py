@@ -28,6 +28,7 @@ from src.cache import WeatherCache
 from src.exceptions import (
     APIError,
     CityNotFoundError,
+    GeolocationError,
     LocationNotFoundError,
     WeatherCLIError,
 )
@@ -123,22 +124,37 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "city",
-        help="Name of the city to look up (e.g. 'Berlin' or 'New York').",
+        nargs="?",
+        default=None,
+        help=(
+            "Name of the city to look up (e.g. 'Berlin' or 'New York'). "
+            "If omitted, the current city is auto-detected via IP "
+            "geolocation."
+        ),
     )
     return parser
 
 
-async def _fetch(city: str) -> Tuple[Location, CurrentWeather]:
-    """Resolve ``city`` to a ``(Location, CurrentWeather)`` pair.
+async def _fetch(
+    city: Optional[str],
+) -> Tuple[Location, CurrentWeather, Optional[str]]:
+    """Resolve a ``(Location, CurrentWeather, auto_detected_city)`` triple.
 
-    Consults the local :class:`~src.cache.WeatherCache` first; on a miss,
-    geocodes the city, fetches the current weather, and writes the result
-    back to the cache. The cache-then-network flow is delegated to
-    :meth:`WeatherClient.fetch_weather_for_city`.
+    When ``city`` is ``None`` an IP-based geolocation lookup is performed
+    first to determine the current city; the resolved name is returned
+    as the third tuple element so the CLI can display an auto-detection
+    notice. When ``city`` is supplied explicitly, the third element is
+    ``None``. The cache-then-network flow is delegated to
+    :meth:`WeatherClient.fetch_weather_for_city` in both cases.
     """
     cache: WeatherCache = WeatherCache()
     async with WeatherClient(cache=cache) as client:
-        return await client.fetch_weather_for_city(city)
+        detected: Optional[str] = None
+        if city is None:
+            detected = await client.detect_current_city()
+            city = detected
+        location, weather = await client.fetch_weather_for_city(city)
+        return location, weather, detected
 
 
 def _render_weather(
@@ -213,6 +229,40 @@ def _render_error(console: Console, exc: WeatherCLIError) -> None:
     console.print(panel)
 
 
+def _render_geolocation_error(console: Console, exc: GeolocationError) -> None:
+    """Render a geolocation failure with a hint to supply a manual city.
+
+    Shown when the IP geolocation step fails (timeout, connectivity, or
+    malformed response). The message explicitly instructs the user to
+    pass a city name on the command line, which keeps the CLI usable
+    without network access to the geolocation service.
+    """
+    body: Text = Text.assemble(
+        (f"{exc}\n\n", "bold red"),
+        ("Please supply a city name as an argument, for example:\n", "red"),
+        ("    weather-cli Berlin\n", "bold white"),
+    )
+    panel: Panel = Panel(
+        body,
+        title="[bold red]✗ Location detection failed[/]",
+        border_style="red",
+        expand=False,
+    )
+    console.print(panel)
+
+
+def _render_auto_detected_notice(console: Console, city: str) -> None:
+    """Display a notice that ``city`` was resolved via IP geolocation."""
+    console.print(
+        Text.assemble(
+            ("ℹ ", "bold yellow"),
+            ("Auto-detected location: ", "yellow"),
+            (city, "bold bright_white"),
+            (" (based on your IP address)", "yellow"),
+        )
+    )
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Entry point for ``python -m src.cli``.
 
@@ -226,11 +276,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     err_console: Console = Console(stderr=True)
 
     try:
-        location, weather = asyncio.run(_fetch(args.city))
+        location, weather, auto_detected = asyncio.run(_fetch(args.city))
+    except GeolocationError as exc:
+        _render_geolocation_error(err_console, exc)
+        return 1
     except WeatherCLIError as exc:
         _render_error(err_console, exc)
         return 1
 
+    if auto_detected is not None:
+        _render_auto_detected_notice(console, auto_detected)
     _render_weather(console, location, weather)
     return 0
 

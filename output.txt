@@ -1,619 +1,1018 @@
- ▐▛███▜▌   Claude Code v2.1.105
-▝▜█████▛▘  claude-mythos-preview with high effort · API Usage
-Billing
-  ▘▘ ▝▝    ~/.cache/claude-hfi/-mnt-e-align-weather-cli/B
+          +y`` field is surfaced as
+      214 +        :class:`~src.exceptions.GeolocationE
+          +rror` so the CLI can prompt
+      215 +        the user to supply a manual location
+          + instead of crashing with a
+      216 +        raw traceback.
+      217 +        """
+      218 +        async with self._request_client() as
+          + client:
+      219 +            try:
+      220 +                response: httpx.Response = a
+          +wait client.get(
+      221 +                    self._ip_geolocation_url
+      222 +                )
+      223 +            except httpx.RequestError as exc
+          +:
+      224 +                raise GeolocationError(
+      225 +                    f"Could not reach IP geo
+          +location service: {exc}"
+      226 +                ) from exc
+      227 +
+      228 +            if response.status_code >= 400:
+      229 +                raise GeolocationError(
+      230 +                    "IP geolocation service
+          +returned "
+      231 +                    f"HTTP {response.status_
+          +code}"
+      232 +                )
+      233 +
+      234 +            try:
+      235 +                payload: Any = response.json
+          +()
+      236 +            except ValueError as exc:
+      237 +                raise GeolocationError(
+      238 +                    "IP geolocation service
+          +returned invalid JSON"
+      239 +                ) from exc
+      240 +
+      241 +            if not isinstance(payload, dict)
+          +:
+      242 +                raise GeolocationError(
+      243 +                    "IP geolocation service
+          +returned an unexpected payload"
+      244 +                )
+      245 +
+      246 +            city: Any = payload.get("city")
+      247 +            if not isinstance(city, str) or
+          +not city.strip():
+      248 +                raise GeolocationError(
+      249 +                    "IP geolocation response
+          + did not include a city name"
+      250 +                )
+      251 +
+      252 +            return city.strip()
+      253 +
+      254      async def fetch_weather_for_city(
+      255          self, city: str
+      256      ) -> Tuple[Location, CurrentWeather]:
 
-  Debug mode enabled
-  Logging to: /tmp/claude-hfi/53262ca2-c6db-4c03-9a83-d49e4574
-1a6c/debug.txt
-
-❯ The terminal weather application requires a presentation lay
-er to connect the
-   data retrieval and caching modules into an executable comma
-nd-line
-  interface. Implement the main entry point to accept a city n
-ame as a
-  positional argument using standard parsing libraries. The ex
-ecution flow must
-   coordinate the existing components by first querying the lo
-cal cache for the
-   requested location, falling back to resolving coordinates v
-ia the geocoding
-  client upon a cache miss, retrieving the current weather dat
-a, and
-  subsequently storing the new payload in the cache. Utilize t
-he rich library
-  to construct the terminal output, formatting the resolved lo
-cation name,
-  temperature, wind speed, and other relevant weather metrics
-into a structured
-   table with visual indicators and color coding. The interfac
-e must handle
-  execution failures by catching domain-specific exceptions, s
-uch as location
-  resolution failures or network timeouts, and displaying form
-atted error
-  messages instead of raw Python tracebacks. Structure the mod
-ule to allow
-  direct application invocation from the command line. Ensure
-the asynchronous
-  event loop is managed correctly during initialization and ma
-intain strict
-  type hinting throughout the integration phase to match the e
-stablished
-  backend architecture.
-
-
-  Read 7 files, listed 2 directories (ctrl+o to expand)
-
-
-● Bash(source venv/bin/activate && python -c "import rich;
-
-      print(rich.__version__)" && python -c "import httpx;
-
-      print(httpx.__version__)")
-
-  ⎿  Error: Exit code 1
-     Traceback (most recent call last):
-       File "<string>", line 1, in <module>
-     AttributeError: module 'rich' has no attribute '__version
-__'
-
-
-● Bash(source venv/bin/activate && python -c "from rich.consol
-e import Console;
-      from rich.table import Table; from rich.panel import Pan
-el; print('ok')")
-  ⎿  ok
-
-● Now I have a full picture. I'll create src/cli.py as the mai
-n entry point that
-   wires together argparse, WeatherCache, WeatherClient, and r
-ich output.
-
-✶ Tomfoolering… (47s · ↓ 460 tokens · thought for 1s)
-  ⎿  Tip: Use /btw to ask a quick side question without interr
-upting Claude's
-     current work
-           Claude Code v2.1.105
- ▐▛███▜▌   claude-mythos-preview with high effort
-▝▜█████▛▘  API Usage Billing
-  ▘▘ ▝▝    ~/.cache/claude-hfi/-mnt-e-align-weather-cli/B
-
-  Debug mode enabled
-  Logging to: /tmp/claude-hfi/53262ca2-c6db-4c03-9a83-d49e4574
-  1a6c/debug.txt
-
-❯ The terminal weather application requires a presentation
-  layer to connect the data retrieval and caching modules
-  into an executable command-line interface. Implement the
-  main entry point to accept a city name as a positional
-  argument using standard parsing libraries. The execution
-  flow must coordinate the existing components by first
-  querying the local cache for the requested location,
-  falling back to resolving coordinates via the geocoding
-  client upon a cache miss, retrieving the current weather
-  data, and subsequently storing the new payload in the
-  cache. Utilize the rich library to construct the terminal
-  output, formatting the resolved location name, temperature,
-   wind speed, and other relevant weather metrics into a
-  structured table with visual indicators and color coding.
-  The interface must handle execution failures by catching
-  domain-specific exceptions, such as location resolution
-  failures or network timeouts, and displaying formatted
-  error messages instead of raw Python tracebacks. Structure
-  the module to allow direct application invocation from the
-  command line. Ensure the asynchronous event loop is managed
-   correctly during initialization and maintain strict type
-  hinting throughout the integration phase to match the
-  established backend architecture.
-
-  Read 7 files, listed 2 directories (ctrl+o to expand)
-
-● Bash(source venv/bin/activate && python -c "import rich;
-      print(rich.__version__)" && python -c "import httpx;
-      print(httpx.__version__)")
-  ⎿  Error: Exit code 1
-     Traceback (most recent call last):
-       File "<string>", line 1, in <module>
-     AttributeError: module 'rich' has no attribute
-     '__version__'
-
-● Bash(source venv/bin/activate && python -c "from
-      rich.console import Console; from rich.table import
-      Table; from rich.panel import Panel; print('ok')")
-  ⎿  ok
-
-● Now I have a full picture. I'll create src/cli.py as the
-  main entry point that wires together argparse, WeatherCache,
-   WeatherClient, and rich output.
-
-  Read 1 file (ctrl+o to expand)
-
-● Now let me add tests for the CLI module following the
-  project's testing conventions.
-
-  Read 1 file (ctrl+o to expand)
-
-● Bash(source venv/bin/activate && black src/cli.py
-      tests/test_cli.py && flake8 src/cli.py
-      tests/test_cli.py)
-  ⎿  Error: Exit code 1
-     All done! ✨ 🍰 ✨
-     2 files left unchanged.
-     src/cli.py:19:1: F401 'sys' imported but unused
-
-  Read 1 file (ctrl+o to expand)
+● Now let me update src/cli.py — make city optional,
+  auto-detect, show a notice, handle geolocation errors.
 
 ● Update(src/cli.py)
-  ⎿  Removed 1 line
-      16
-      17  import argparse
-      18  import asyncio
-      19 -import sys
-      19  from typing import Dict, Optional, Sequence,
-          Tuple
-      20
-      21  from rich.console import Console
-
-● Bash(source venv/bin/activate && black src/cli.py
-      tests/test_cli.py && flake8 src/cli.py tests/test_cli.py
-       && echo "--- lint ok ---" && COLUMNS=200 pytest
-      tests/test…)
-  ⎿  All done! ✨ 🍰 ✨
-     2 files left unchanged.
-     --- lint ok ---
-     … +57 lines (ctrl+o to expand)
-
-● All 11 CLI tests pass. Let me run the full suite to confirm
-  nothing regressed, and verify the module is directly
-  invokable.
-
-● Bash(source venv/bin/activate && pytest tests/ -q)
-  ⎿  ....................................................
-     ......               [100%]
-     58 passed in 0.44s
-
-● Bash(source venv/bin/activate && python -m src.cli --help)
-  ⎿  usage: weather-cli [-h] city
-
-     Fetch and display the current weather for a city.
-     … +7 lines (ctrl+o to expand)
-
-● All 58 tests pass, lint/format clean, and python -m src.cli
-  works.
-
-  Summary
-
-  Created src/cli.py — the presentation layer / entry point:
-
-  - Arg parsing — build_parser() uses argparse with a required
-   positional city argument.
-  - Execution flow — _fetch() instantiates WeatherCache and
-  fetch_weather_for_city() which already implements
-  cache-lookup → geocode-on-miss → fetch-weather → cache-store
-   (src/api_client.py:199-225).
-  - Async management — main() drives the async coroutine via
-  asyncio.run(); the httpx.AsyncClient lifecycle is managed by
-   async with WeatherClient().
-  - Rich output — _render_weather() builds a rich.Table with
-  location name, coordinates, conditions (WMO code → label +
-  emoji indicator), temperature (colour-coded by range:
-  blue/cyan/green/yellow/red), wind speed (colour-coded
-  green/yellow/red), wind direction, and observation time.
-  - Error handling — main() catches WeatherCLIError (the base
-           Claude Code v2.1.105
- ▐▛███▜▌   claude-mythos-preview with high effort
-▝▜█████▛▘  API Usage Billing
-  ▘▘ ▝▝    ~/.cache/claude-hfi/-mnt-e-align-weather-cli/B
-
-  Debug mode enabled
-  Logging to: /tmp/claude-hfi/53262ca2-c6db-4c03-9a83-d49e4574
-  1a6c/debug.txt
-
-❯ The terminal weather application requires a presentation
-  layer to connect the data retrieval and caching modules
-  into an executable command-line interface. Implement the
-  main entry point to accept a city name as a positional
-  argument using standard parsing libraries. The execution
-  flow must coordinate the existing components by first
-  querying the local cache for the requested location,
-  falling back to resolving coordinates via the geocoding
-  client upon a cache miss, retrieving the current weather
-  data, and subsequently storing the new payload in the
-  cache. Utilize the rich library to construct the terminal
-  output, formatting the resolved location name, temperature,
-   wind speed, and other relevant weather metrics into a
-  structured table with visual indicators and color coding.
-  The interface must handle execution failures by catching
-  domain-specific exceptions, such as location resolution
-  failures or network timeouts, and displaying formatted
-  error messages instead of raw Python tracebacks. Structure
-  the module to allow direct application invocation from the
-  command line. Ensure the asynchronous event loop is managed
-   correctly during initialization and maintain strict type
-  hinting throughout the integration phase to match the
-  established backend architecture.
-
-  Read 7 files, listed 2 directories (ctrl+o to expand)
-
-● Bash(source venv/bin/activate && python -c "import rich;
-      print(rich.__version__)" && python -c "import httpx;
-      print(httpx.__version__)")
-  ⎿  Error: Exit code 1
-     Traceback (most recent call last):
-       File "<string>", line 1, in <module>
-     AttributeError: module 'rich' has no attribute
-     '__version__'
-
-● Bash(source venv/bin/activate && python -c "from
-      rich.console import Console; from rich.table import
-      Table; from rich.panel import Panel; print('ok')")
-  ⎿  ok
-
-● Now I have a full picture. I'll create src/cli.py as the
-  main entry point that wires together argparse, WeatherCache,
-   WeatherClient, and rich output.
-
-  Read 1 file (ctrl+o to expand)
-
-● Now let me add tests for the CLI module following the
-  project's testing conventions.
-
-  Read 1 file (ctrl+o to expand)
-
-● Bash(source venv/bin/activate && black src/cli.py
-      tests/test_cli.py && flake8 src/cli.py
-      tests/test_cli.py)
-  ⎿  Error: Exit code 1
-     All done! ✨ 🍰 ✨
-     2 files left unchanged.
-     src/cli.py:19:1: F401 'sys' imported but unused
-
-  Read 1 file (ctrl+o to expand)
+  ⎿  Added 1 line
+      28  from src.exceptions import (
+      29      APIError,
+      30      CityNotFoundError,
+      31 +    GeolocationError,
+      32      LocationNotFoundError,
+      33      WeatherCLIError,
+      34  )
 
 ● Update(src/cli.py)
-  ⎿  Removed 1 line
-      16
-      17  import argparse
-      18  import asyncio
-      19 -import sys
-      19  from typing import Dict, Optional, Sequence,
-          Tuple
-      20
-      21  from rich.console import Console
+  ⎿  Added 23 lines, removed 8 lines
+      124      )
+      125      parser.add_argument(
+      126          "city",
+      127 -        help="Name of the city to look up (e
+          -.g. 'Berlin' or 'New York').",
+      127 +        nargs="?",
+      128 +        default=None,
+      129 +        help=(
+      130 +            "Name of the city to look up (e.
+          +g. 'Berlin' or 'New York'). "
+      131 +            "If omitted, the current city is
+          + auto-detected via IP "
+      132 +            "geolocation."
+      133 +        ),
+      134      )
+      135      return parser
+      136
+      137
+      132 -async def _fetch(city: str) -> Tuple[Locatio
+          -n, CurrentWeather]:
+      133 -    """Resolve ``city`` to a ``(Location, Cu
+          -rrentWeather)`` pair.
+      138 +async def _fetch(
+      139 +    city: Optional[str],
+      140 +) -> Tuple[Location, CurrentWeather, Optiona
+          +l[str]]:
+      141 +    """Resolve a ``(Location, CurrentWeather
+          +, auto_detected_city)`` triple.
+      142
+      135 -    Consults the local :class:`~src.cache.We
+          -atherCache` first; on a miss,
+      136 -    geocodes the city, fetches the current w
+          -eather, and writes the result
+      137 -    back to the cache. The cache-then-networ
+          -k flow is delegated to
+      138 -    :meth:`WeatherClient.fetch_weather_for_c
+          -ity`.
+      143 +    When ``city`` is ``None`` an IP-based ge
+          +olocation lookup is performed
+      144 +    first to determine the current city; the
+          + resolved name is returned
+      145 +    as the third tuple element so the CLI ca
+          +n display an auto-detection
+      146 +    notice. When ``city`` is supplied explic
+          +itly, the third element is
+      147 +    ``None``. The cache-then-network flow is
+          + delegated to
+      148 +    :meth:`WeatherClient.fetch_weather_for_c
+          +ity` in both cases.
+      149      """
+      150      cache: WeatherCache = WeatherCache()
+      151      async with WeatherClient(cache=cache) as
+            client:
+      142 -        return await client.fetch_weather_fo
+          -r_city(city)
+      152 +        detected: Optional[str] = None
+      153 +        if city is None:
+      154 +            detected = await client.detect_c
+          +urrent_city()
+      155 +            city = detected
+      156 +        location, weather = await client.fet
+          +ch_weather_for_city(city)
+      157 +        return location, weather, detected
+      158
+      159
+      160  def _render_weather(
 
-● Bash(source venv/bin/activate && black src/cli.py
-      tests/test_cli.py && flake8 src/cli.py tests/test_cli.py
-       && echo "--- lint ok ---" && COLUMNS=200 pytest
-      tests/test…)
-  ⎿  All done! ✨ 🍰 ✨
-     2 files left unchanged.
-     --- lint ok ---
-     … +57 lines (ctrl+o to expand)
-
-● All 11 CLI tests pass. Let me run the full suite to confirm
-  nothing regressed, and verify the module is directly
-  invokable.
-
-● Bash(source venv/bin/activate && pytest tests/ -q)
-  ⎿  ....................................................
-     ......               [100%]
-     58 passed in 0.44s
-
-● Bash(source venv/bin/activate && python -m src.cli --help)
-  ⎿  usage: weather-cli [-h] city
-
-     Fetch and display the current weather for a city.
-     … +7 lines (ctrl+o to expand)
-
-● All 58 tests pass, lint/format clean, and python -m src.cli
-  works.
-
-  Summary
-
-  Created src/cli.py — the presentation layer / entry point:
-  - Arg parsing — build_parser() uses argparse with a required
-   positional city argument.
-  - Execution flow — _fetch() instantiates WeatherCache and
-  passes it to WeatherClient, then calls
-  fetch_weather_for_city() which already implements
-  cache-lookup → geocode-on-miss → fetch-weather → cache-store
-   (src/api_client.py:199-225).
-  - Async management — main() drives the async coroutine via
-  asyncio.run(); the httpx.AsyncClient lifecycle is managed by
-   async with WeatherClient().
-  - Rich output — _render_weather() builds a rich.Table with
-  location name, coordinates, conditions (WMO code → label +
-  emoji indicator), temperature (colour-coded by range:
-  blue/cyan/green/yellow/red), wind speed (colour-coded
-  green/yellow/red), wind direction, and observation time.
-  - Error handling — main() catches WeatherCLIError (the base
-  of CityNotFoundError, LocationNotFoundError, APIError) and
-  renders a red rich.Panel to stderr via _render_error()
-  instead of leaking tracebacks. Returns exit code 0/1.
-  - Direct invocation — if __name__ == "__main__": raise
-  SystemExit(main()).
-  - Strict type hints throughout, matching the backend style.
-
-  Created tests/test_cli.py — 11 tests covering the happy
-  path, city-not-found, network errors, cache population +
-  reuse, argument parsing, weather-code/temperature/wind
-  styling thresholds, and rendering helpers. All network calls
-   mocked with respx; cache redirected to tmp_path per test.
-
-❯ The wind direction row in the table just shows raw degrees
-  which is not meaningful for most users. Add a compass
-  cardinal label next to the degree value using the existing
-  winddirection float so it reads something like 292 degrees
-  WNW instead of just 292 degrees. Also verify that httpx
-  timeout and connection exceptions are properly caught and
-  surfaced as formatted error panels instead of raw
-  tracebacks since the original requirement specified
-  handling network timeouts explicitly. Run all existing
-  tests after.
-
-  Read 1 file (ctrl+o to expand)
+● Now update the rendering and main function.
 
 ● Update(src/cli.py)
-  ⎿  Added 20 lines
-       95      return "bold red"
-       96
-       97
-       98 +#: 16-point compass rose, indexed clockwise
-          +from north in 22.5° steps.
-       99 +_COMPASS_POINTS: Tuple[str, ...] = (
-      100 +    "N", "NNE", "NE", "ENE",
-      101 +    "E", "ESE", "SE", "SSE",
-      102 +    "S", "SSW", "SW", "WSW",
-      103 +    "W", "WNW", "NW", "NNW",
-      104 +)  # fmt: skip
-      105 +
-      106 +
-      107 +def _compass_point(degrees: float) -> str:
-      108 +    """Return the 16-point compass cardinal
-          +for a bearing in ``degrees``.
-      109 +
-      110 +    ``degrees`` is normalised into ``[0, 360
-          +)`` so negative or >360 values
-      111 +    (which Open-Meteo shouldn't emit, but co
-          +st nothing to handle) still
-      112 +    resolve correctly. 292° → ``"WNW"``.
-      113 +    """
-      114 +    index: int = round((degrees % 360.0) / 2
-          +2.5) % 16
-      115 +    return _COMPASS_POINTS[index]
-      116 +
-      117 +
-      118  def build_parser() -> argparse.ArgumentParse
-           r:
-      119      """Construct the argument parser for the
-            ``weather-cli`` entry point."""
-      120      parser = argparse.ArgumentParser(
+  ⎿  Added 34 lines
+      229      console.print(panel)
+      230
+      231
+      232 +def _render_geolocation_error(console: Conso
+          +le, exc: GeolocationError) -> None:
+      233 +    """Render a geolocation failure with a h
+          +int to supply a manual city.
+      234 +
+      235 +    Shown when the IP geolocation step fails
+          + (timeout, connectivity, or
+      236 +    malformed response). The message explici
+          +tly instructs the user to
+      237 +    pass a city name on the command line, wh
+          +ich keeps the CLI usable
+      238 +    without network access to the geolocatio
+          +n service.
+      239 +    """
+      240 +    body: Text = Text.assemble(
+      241 +        (f"{exc}\n\n", "bold red"),
+      242 +        ("Please supply a city name as an ar
+          +gument, for example:\n", "red"),
+      243 +        ("    weather-cli Berlin\n", "bold w
+          +hite"),
+      244 +    )
+      245 +    panel: Panel = Panel(
+      246 +        body,
+      247 +        title="[bold red]✗ Location detectio
+          +n failed[/]",
+      248 +        border_style="red",
+      249 +        expand=False,
+      250 +    )
+      251 +    console.print(panel)
+      252 +
+      253 +
+      254 +def _render_auto_detected_notice(console: Co
+          +nsole, city: str) -> None:
+      255 +    """Display a notice that ``city`` was re
+          +solved via IP geolocation."""
+      256 +    console.print(
+      257 +        Text.assemble(
+      258 +            ("ℹ ", "bold yellow"),
+      259 +            ("Auto-detected location: ", "ye
+          +llow"),
+      260 +            (city, "bold bright_white"),
+      261 +            (" (based on your IP address)",
+          +"yellow"),
+      262 +        )
+      263 +    )
+      264 +
+      265 +
+      266  def main(argv: Optional[Sequence[str]] = Non
+           e) -> int:
+      267      """Entry point for ``python -m src.cli``
+           .
+      268
 
 ● Update(src/cli.py)
-  ⎿  Added 4 lines, removed 1 line
-      183              style=_wind_style(weather.windsp
-           eed),
-      184          ),
-      185      )
-      186 -    table.add_row("Wind direction", f"{weath
-          -er.winddirection:.0f}°")
-      186 +    table.add_row(
-      187 +        "Wind direction",
-      188 +        f"{weather.winddirection:.0f}° {_com
-          +pass_point(weather.winddirection)}",
-      189 +    )
-      190      table.add_row("Observed at", f"{weather.
-           time} ({weather.timezone})")
-      191
-      192      console.print(table)
+  ⎿  Added 6 lines, removed 1 line
+      276      err_console: Console = Console(stderr=Tr
+           ue)
+      277
+      278      try:
+      279 -        location, weather = asyncio.run(_fet
+          -ch(args.city))
+      279 +        location, weather, auto_detected = a
+          +syncio.run(_fetch(args.city))
+      280 +    except GeolocationError as exc:
+      281 +        _render_geolocation_error(err_consol
+          +e, exc)
+      282 +        return 1
+      283      except WeatherCLIError as exc:
+      284          _render_error(err_console, exc)
+      285          return 1
+      286
+      287 +    if auto_detected is not None:
+      288 +        _render_auto_detected_notice(console
+          +, auto_detected)
+      289      _render_weather(console, location, weath
+           er)
+      290      return 0
+      291
 
-● Now for the timeout/connection verification:
-  httpx.TimeoutException and httpx.ConnectError both subclass
-  httpx.RequestError, which WeatherClient._get_json
-  (src/api_client.py:250) already catches and wraps in
-  APIError → caught by main() as WeatherCLIError. I already
-  have a test for ConnectError; I'll add an explicit one for
-  timeouts and a unit test confirming the exception hierarchy
-  so this assumption is guarded.
+● Now update the tests. The existing test
+  test_build_parser_requires_city_positional needs updating
+  because the city is now optional.
 
 ● Update(tests/test_cli.py)
-  ⎿  File must be read first
-
-  Read 1 file (ctrl+o to expand)
+  ⎿  Added 2 lines, removed 1 line
+      15
+      16  from src import cli
+      17  from src.api_client import (
+      18 +    IP_GEOLOCATION_URL,
+      19      OPEN_METEO_GEOCODING_URL,
+      20      OPEN_METEO_URL,
+      21      CurrentWeather,
+      22      Location,
+      23  )
+      23 -from src.exceptions import APIError, CityNotF
+         -oundError
+      24 +from src.exceptions import APIError, CityNotF
+         +oundError, GeolocationError
+      25
+      26
+      27  @pytest.fixture(autouse=True)
 
 ● Update(tests/test_cli.py)
-  ⎿  Added 37 lines
-      123
-      124
-      125  @respx.mock
-      126 +def test_main_timeout_renders_error_and_retu
-          +rns_one(
-      127 +    capsys: pytest.CaptureFixture[str],
-      128 +) -> None:
-      129 +    """An ``httpx`` timeout must surface as
-          +a formatted panel, not a traceback.
-      130 +
-      131 +    ``httpx.ReadTimeout`` ⊂ ``httpx.TimeoutE
-          +xception`` ⊂ ``httpx.RequestError``,
-      132 +    which ``WeatherClient._get_json`` wraps
-          +in ``APIError`` — so ``main`` should
-      133 +    catch it and exit ``1`` with a rendered
-          +error on stderr.
-      134 +    """
-      135 +    respx.get(OPEN_METEO_GEOCODING_URL).mock
-          +(
-      136 +        side_effect=httpx.ReadTimeout("read
+  ⎿  Added 6 lines, removed 5 lines
+      203      assert wx_route.call_count == 1
+      204
+      205
+      206 -def test_build_parser_requires_city_position
+          -al() -> None:
+      206 +def test_build_parser_city_is_optional() ->
+          +None:
+      207 +    """The city argument is optional; omitti
+          +ng it yields ``city=None``."""
+      208      parser = cli.build_parser()
+      208 -    with pytest.raises(SystemExit):
+      209 -        parser.parse_args([])
+      210 -    ns = parser.parse_args(["Tokyo"])
+      211 -    assert ns.city == "Tokyo"
+      209 +    ns_empty = parser.parse_args([])
+      210 +    assert ns_empty.city is None
+      211 +    ns_explicit = parser.parse_args(["Tokyo"
+          +])
+      212 +    assert ns_explicit.city == "Tokyo"
+      213
+      214
+      215  def test_describe_weather_code_known_and_unk
+           nown() -> None:
+
+● Now add tests for auto-detection (success + failure modes)
+  and the new render helpers. I'll append them near the
+  bottom.
+
+● Update(tests/test_cli.py)
+  ⎿  Added 141 lines
+      257      assert cli._compass_point(degrees) == ex
+           pected
+      258
+      259
+      260 +@respx.mock
+      261 +def test_main_auto_detects_city_when_argumen
+          +t_omitted(
+      262 +    capsys: pytest.CaptureFixture[str],
+      263 +    geocode_payload: Dict[str, Any],
+      264 +    weather_payload: Dict[str, Any],
+      265 +) -> None:
+      266 +    """Omitting the city triggers IP geoloca
+          +tion and renders a notice."""
+      267 +    ip_route = respx.get(IP_GEOLOCATION_URL)
+          +.mock(
+      268 +        return_value=httpx.Response(
+      269 +            200,
+      270 +            json={
+      271 +                "ip": "203.0.113.7",
+      272 +                "city": "Berlin",
+      273 +                "region": "Land Berlin",
+      274 +                "country_name": "Germany",
+      275 +            },
+      276 +        )
+      277 +    )
+      278 +    geo_route = respx.get(OPEN_METEO_GEOCODI
+          +NG_URL).mock(
+      279 +        return_value=httpx.Response(200, jso
+          +n=geocode_payload)
+      280 +    )
+      281 +    wx_route = respx.get(OPEN_METEO_URL).moc
+          +k(
+      282 +        return_value=httpx.Response(200, jso
+          +n=weather_payload)
+      283 +    )
+      284 +
+      285 +    exit_code: int = cli.main([])
+      286 +
+      287 +    assert exit_code == 0
+      288 +    assert ip_route.called
+      289 +    assert geo_route.called
+      290 +    assert wx_route.called
+      291 +
+      292 +    captured = capsys.readouterr()
+      293 +    assert "Auto-detected location" in captu
+          +red.out
+      294 +    assert "Berlin" in captured.out
+      295 +    assert "Berlin, Land Berlin, Germany" in
+          + captured.out
+      296 +    assert captured.err == ""
+      297 +
+      298 +
+      299 +@respx.mock
+      300 +def test_main_auto_detect_network_failure_in
+          +structs_manual_argument(
+      301 +    capsys: pytest.CaptureFixture[str],
+      302 +) -> None:
+      303 +    """A connectivity error during IP lookup
+          + prompts manual fallback."""
+      304 +    ip_route = respx.get(IP_GEOLOCATION_URL)
+          +.mock(
+      305 +        side_effect=httpx.ConnectError("conn
+          +ection refused")
+      306 +    )
+      307 +    geo_route = respx.get(OPEN_METEO_GEOCODI
+          +NG_URL).mock(
+      308 +        return_value=httpx.Response(200, jso
+          +n={"results": []})
+      309 +    )
+      310 +
+      311 +    exit_code: int = cli.main([])
+      312 +
+      313 +    assert exit_code == 1
+      314 +    assert ip_route.called
+      315 +    # The geocoding/weather pipeline must no
+          +t be touched when detection fails.
+      316 +    assert not geo_route.called
+      317 +
+      318 +    captured = capsys.readouterr()
+      319 +    assert captured.out == ""
+      320 +    assert "Location detection failed" in ca
+          +ptured.err
+      321 +    assert "weather-cli Berlin" in captured.
+          +err
+      322 +    assert "Traceback" not in captured.err
+      323 +
+      324 +
+      325 +@respx.mock
+      326 +def test_main_auto_detect_timeout_instructs_
+          +manual_argument(
+      327 +    capsys: pytest.CaptureFixture[str],
+      328 +) -> None:
+      329 +    """A read timeout on IP lookup surfaces
+          +as a formatted panel, not a crash."""
+      330 +    respx.get(IP_GEOLOCATION_URL).mock(
+      331 +        side_effect=httpx.ReadTimeout("read
           +timed out")
-      137 +    )
-      138 +
-      139 +    exit_code: int = cli.main(["Berlin"])
-      140 +
-      141 +    assert exit_code == 1
-      142 +    captured = capsys.readouterr()
-      143 +    assert captured.out == ""
-      144 +    assert "Weather service error" in captur
-          +ed.err
-      145 +    assert "Traceback" not in captured.err
-      146 +
-      147 +
-      148 +def test_httpx_network_exceptions_are_reques
-          +t_errors() -> None:
-      149 +    """Guard the assumption that timeout/con
-          +nect errors are ``RequestError``.
-      150 +
-      151 +    ``WeatherClient._get_json`` catches ``ht
-          +tpx.RequestError`` to wrap all
-      152 +    network failures in :class:`~src.excepti
-          +ons.APIError`. If a future
-      153 +    ``httpx`` release were to move these out
-          + of that hierarchy, timeouts
-      154 +    would leak as raw tracebacks — this test
-          + fails loudly in that case.
-      155 +    """
-      156 +    assert issubclass(httpx.TimeoutException
-          +, httpx.RequestError)
-      157 +    assert issubclass(httpx.ConnectTimeout,
-          +httpx.RequestError)
-      158 +    assert issubclass(httpx.ReadTimeout, htt
-          +px.RequestError)
-      159 +    assert issubclass(httpx.ConnectError, ht
-          +tpx.RequestError)
-      160 +
-      161 +
-      162 +@respx.mock
-      163  def test_main_populates_cache_on_miss(
-      164      isolated_cache: Path,
-      165      geocode_payload: Dict[str, Any],
-
-● Update(tests/test_cli.py)
-  ⎿  Added 21 lines
-      234      assert cli._wind_style(60.0) == "bold re
-           d"
-      235
-      236
-      237 +@pytest.mark.parametrize(
-      238 +    "degrees, expected",
-      239 +    [
-      240 +        (0.0, "N"),
-      241 +        (11.24, "N"),
-      242 +        (11.25, "NNE"),
-      243 +        (45.0, "NE"),
-      244 +        (90.0, "E"),
-      245 +        (180.0, "S"),
-      246 +        (270.0, "W"),
-      247 +        (292.0, "WNW"),
-      248 +        (348.75, "N"),
-      249 +        (360.0, "N"),
-      250 +        (405.0, "NE"),
-      251 +        (-90.0, "W"),
-      252 +    ],
-      253 +)
-      254 +def test_compass_point(degrees: float, expec
-          +ted: str) -> None:
-      255 +    assert cli._compass_point(degrees) == ex
-          +pected
-      256 +
-      257 +
-      258  def test_render_error_headings() -> None:
-      259      console = Console(record=True, stderr=Tr
+      332 +    )
+      333 +
+      334 +    exit_code: int = cli.main([])
+      335 +
+      336 +    assert exit_code == 1
+      337 +    captured = capsys.readouterr()
+      338 +    assert captured.out == ""
+      339 +    assert "Location detection failed" in ca
+          +ptured.err
+      340 +    assert "weather-cli Berlin" in captured.
+          +err
+      341 +    assert "Traceback" not in captured.err
+      342 +
+      343 +
+      344 +@respx.mock
+      345 +def test_main_auto_detect_missing_city_field
+          +_instructs_manual_argument(
+      346 +    capsys: pytest.CaptureFixture[str],
+      347 +) -> None:
+      348 +    """A structurally valid response with no
+          + ``city`` field fails gracefully."""
+      349 +    respx.get(IP_GEOLOCATION_URL).mock(
+      350 +        return_value=httpx.Response(200, jso
+          +n={"ip": "203.0.113.7"}),
+      351 +    )
+      352 +
+      353 +    exit_code: int = cli.main([])
+      354 +
+      355 +    assert exit_code == 1
+      356 +    captured = capsys.readouterr()
+      357 +    assert captured.out == ""
+      358 +    assert "Location detection failed" in ca
+          +ptured.err
+      359 +
+      360 +
+      361 +@respx.mock
+      362 +def test_main_with_explicit_city_does_not_ca
+          +ll_ip_geolocation(
+      363 +    geocode_payload: Dict[str, Any],
+      364 +    weather_payload: Dict[str, Any],
+      365 +) -> None:
+      366 +    """When a city is supplied explicitly th
+          +e IP lookup is skipped."""
+      367 +    ip_route = respx.get(IP_GEOLOCATION_URL)
+          +.mock(
+      368 +        return_value=httpx.Response(200, jso
+          +n={"city": "Berlin"})
+      369 +    )
+      370 +    respx.get(OPEN_METEO_GEOCODING_URL).mock
+          +(
+      371 +        return_value=httpx.Response(200, jso
+          +n=geocode_payload)
+      372 +    )
+      373 +    respx.get(OPEN_METEO_URL).mock(
+      374 +        return_value=httpx.Response(200, jso
+          +n=weather_payload)
+      375 +    )
+      376 +
+      377 +    assert cli.main(["Berlin"]) == 0
+      378 +    assert not ip_route.called
+      379 +
+      380 +
+      381 +def test_render_geolocation_error_has_manual
+          +_fallback_hint() -> None:
+      382 +    console = Console(record=True, stderr=Tr
+          +ue, width=120)
+      383 +    cli._render_geolocation_error(
+      384 +        console, GeolocationError("IP lookup
+          + timed out")
+      385 +    )
+      386 +    output: str = console.export_text()
+      387 +    assert "Location detection failed" in ou
+          +tput
+      388 +    assert "IP lookup timed out" in output
+      389 +    assert "weather-cli Berlin" in output
+      390 +
+      391 +
+      392 +def test_render_auto_detected_notice_mention
+          +s_ip_and_city() -> None:
+      393 +    console = Console(record=True, width=120
+          +)
+      394 +    cli._render_auto_detected_notice(console
+          +, "Berlin")
+      395 +    output: str = console.export_text()
+      396 +    assert "Auto-detected location" in outpu
+          +t
+      397 +    assert "Berlin" in output
+      398 +    assert "IP" in output
+      399 +
+      400 +
+      401  def test_render_error_headings() -> None:
+      402      console = Console(record=True, stderr=Tr
            ue, width=120)
-      260
+      403
 
-● Update(tests/test_cli.py)
-  ⎿  Added 1 line, removed 1 line
-      288      assert "Berlin, Germany" in output
-      289      assert "13.4" in output
-      290      assert "10.6" in output
-      291 -    assert "292" in output
-      291 +    assert "292° WNW" in output
-      292      assert "Overcast" in output
-      293      assert "2023-05-18T12:00" in output
+● Now let me add corresponding unit tests to
+  test_api_client.py for the new detect_current_city method.
 
-● Bash(source venv/bin/activate && black src/cli.py
-      tests/test_cli.py && flake8 src/cli.py tests/test_cli.py
-       && echo "--- lint ok ---" && pytest tests/ -v)
+● Update(tests/test_api_client.py)
+  ⎿  Added 7 lines, removed 1 line
+      11  import respx
+      12
+      13  from src.api_client import (
+      14 +    IP_GEOLOCATION_URL,
+      15      OPEN_METEO_GEOCODING_URL,
+      16      OPEN_METEO_URL,
+      17      CurrentWeather,
+      18      Location,
+      19      WeatherClient,
+      20  )
+      20 -from src.exceptions import APIError, CityNotF
+         -oundError, LocationNotFoundError
+      21 +from src.exceptions import (
+      22 +    APIError,
+      23 +    CityNotFoundError,
+      24 +    GeolocationError,
+      25 +    LocationNotFoundError,
+      26 +)
+      27
+      28
+      29  @pytest.fixture
+
+  Read 1 file (ctrl+o to expand)
+
+● Bash(source venv/bin/activate && python -c "
+      with open('tests/test_api_client.py', 'rb') as f:…)
+  ⎿  ends CRLF? True
+     last 40 bytes: b'value.__cause__, httpx.ConnectTimeo
+     ut)\r\n'
+
+● Update(tests/test_api_client.py)
+  ⎿  Added 127 lines
+      403      assert "Network error" in str(excinfo.va
+           lue)
+      404      assert excinfo.value.status_code is None
+      405      assert isinstance(excinfo.value.__cause_
+           _, httpx.ConnectTimeout)
+      406 +
+      407 +
+      408 +# ------------------------------------------
+          +---------------------------------
+      409 +# IP geolocation tests
+      410 +# ------------------------------------------
+          +---------------------------------
+      411 +
+      412 +
+      413 +@pytest.mark.asyncio
+      414 +@respx.mock
+      415 +async def test_detect_current_city_returns_c
+          +ity_from_payload() -> None:
+      416 +    route = respx.get(IP_GEOLOCATION_URL).mo
+          +ck(
+      417 +        return_value=httpx.Response(
+      418 +            200,
+      419 +            json={
+      420 +                "ip": "203.0.113.7",
+      421 +                "city": "Berlin",
+      422 +                "region": "Land Berlin",
+      423 +                "country_name": "Germany",
+      424 +            },
+      425 +        )
+      426 +    )
+      427 +
+      428 +    async with WeatherClient() as client:
+      429 +        city: str = await client.detect_curr
+          +ent_city()
+      430 +
+      431 +    assert route.called
+      432 +    assert city == "Berlin"
+      433 +
+      434 +
+      435 +@pytest.mark.asyncio
+      436 +@respx.mock
+      437 +async def test_detect_current_city_strips_wh
+          +itespace() -> None:
+      438 +    respx.get(IP_GEOLOCATION_URL).mock(
+      439 +        return_value=httpx.Response(200, jso
+          +n={"city": "  Berlin  "}),
+      440 +    )
+      441 +
+      442 +    async with WeatherClient() as client:
+      443 +        assert await client.detect_current_c
+          +ity() == "Berlin"
+      444 +
+      445 +
+      446 +@pytest.mark.asyncio
+      447 +@respx.mock
+      448 +async def test_detect_current_city_connect_e
+          +rror_raises_geolocation_error() -> None:
+      449 +    respx.get(IP_GEOLOCATION_URL).mock(
+      450 +        side_effect=httpx.ConnectError("conn
+          +ection refused"),
+      451 +    )
+      452 +
+      453 +    async with WeatherClient() as client:
+      454 +        with pytest.raises(GeolocationError)
+          + as excinfo:
+      455 +            await client.detect_current_city
+          +()
+      456 +
+      457 +    assert "Could not reach IP geolocation s
+          +ervice" in str(excinfo.value)
+      458 +    assert isinstance(excinfo.value.__cause_
+          +_, httpx.ConnectError)
+      459 +
+      460 +
+      461 +@pytest.mark.asyncio
+      462 +@respx.mock
+      463 +async def test_detect_current_city_timeout_r
+          +aises_geolocation_error() -> None:
+      464 +    respx.get(IP_GEOLOCATION_URL).mock(
+      465 +        side_effect=httpx.ReadTimeout("read
+          +timed out"),
+      466 +    )
+      467 +
+      468 +    async with WeatherClient() as client:
+      469 +        with pytest.raises(GeolocationError)
+          + as excinfo:
+      470 +            await client.detect_current_city
+          +()
+      471 +
+      472 +    assert isinstance(excinfo.value.__cause_
+          +_, httpx.ReadTimeout)
+      473 +
+      474 +
+      475 +@pytest.mark.asyncio
+      476 +@respx.mock
+      477 +async def test_detect_current_city_http_erro
+          +r_raises_geolocation_error() -> None:
+      478 +    respx.get(IP_GEOLOCATION_URL).mock(
+      479 +        return_value=httpx.Response(503, tex
+          +t="Service Unavailable"),
+      480 +    )
+      481 +
+      482 +    async with WeatherClient() as client:
+      483 +        with pytest.raises(GeolocationError,
+          + match="HTTP 503"):
+      484 +            await client.detect_current_city
+          +()
+      485 +
+      486 +
+      487 +@pytest.mark.asyncio
+      488 +@respx.mock
+      489 +async def test_detect_current_city_invalid_j
+          +son_raises_geolocation_error() -> None:
+      490 +    respx.get(IP_GEOLOCATION_URL).mock(
+      491 +        return_value=httpx.Response(200, tex
+          +t="<html>not json</html>"),
+      492 +    )
+      493 +
+      494 +    async with WeatherClient() as client:
+      495 +        with pytest.raises(GeolocationError,
+          + match="invalid JSON"):
+      496 +            await client.detect_current_city
+          +()
+      497 +
+      498 +
+      499 +@pytest.mark.asyncio
+      500 +@respx.mock
+      501 +async def test_detect_current_city_missing_c
+          +ity_field_raises() -> None:
+      502 +    respx.get(IP_GEOLOCATION_URL).mock(
+      503 +        return_value=httpx.Response(200, jso
+          +n={"ip": "203.0.113.7"}),
+      504 +    )
+      505 +
+      506 +    async with WeatherClient() as client:
+      507 +        with pytest.raises(GeolocationError,
+          + match="did not include a city"):
+      508 +            await client.detect_current_city
+          +()
+      509 +
+      510 +
+      511 +@pytest.mark.asyncio
+      512 +@respx.mock
+      513 +async def test_detect_current_city_empty_cit
+          +y_field_raises() -> None:
+      514 +    respx.get(IP_GEOLOCATION_URL).mock(
+      515 +        return_value=httpx.Response(200, jso
+          +n={"city": "   "}),
+      516 +    )
+      517 +
+      518 +    async with WeatherClient() as client:
+      519 +        with pytest.raises(GeolocationError,
+          + match="did not include a city"):
+      520 +            await client.detect_current_city
+          +()
+      521 +
+      522 +
+      523 +@pytest.mark.asyncio
+      524 +@respx.mock
+      525 +async def test_detect_current_city_non_dict_
+          +payload_raises() -> None:
+      526 +    respx.get(IP_GEOLOCATION_URL).mock(
+      527 +        return_value=httpx.Response(200, jso
+          +n=["not", "a", "dict"]),
+      528 +    )
+      529 +
+      530 +    async with WeatherClient() as client:
+      531 +        with pytest.raises(GeolocationError,
+          + match="unexpected payload"):
+      532 +            await client.detect_current_city
+          +()
+
+● Now run the tests to verify.
+
+● Bash(source venv/bin/activate && pytest tests/ -v 2>&1 |
+      tail -80)
+  ⎿  tests/test_api_client.py::test_geocode_city_feeds_in
+     to_fetch_current_weather PASSED [ 12%]
+     tests/test_api_client.py::test_geocode_city_empty_re
+     … +127 lines (ctrl+o to expand)
+
+● All 88 tests pass (16 new, 72 previous). Let me also run the
+   linter to verify style compliance.
+
+● Bash(source venv/bin/activate && flake8 src tests)
+  ⎿  (No output)
+
+● Bash(source venv/bin/activate && black --check src tests
+      2>&1)
   ⎿  Error: Exit code 1
-     All done! ✨ 🍰 ✨
-     2 files left unchanged.
-     --- lint ok ---
-     ============================= test session starts
-     ==============================
-     platform linux -- Python 3.12.3, pytest-9.0.3,
-     pluggy-1.6.0 -- /home/asura/.cache/claude-hfi/-mnt-e-alig
-     n-weather-cli/B/venv/bin/python3
-     cachedir: .pytest_cache
-     rootdir:
-     /home/asura/.cache/claude-hfi/-mnt-e-align-weather-cli/B
-     plugins: respx-0.23.1, anyio-4.13.0, asyncio-1.3.0
-     asyncio: mode=Mode.STRICT, debug=False,
-     asyncio_default_fixture_loop_scope=None,
-     asyncio_default_test_loop_scope=function
-     … +108 lines (ctrl+o to see all)
+     would reformat /home/asura/.cache/claude-hfi/-mnt-e-align
+     -weather-cli/B/src/api_client.py
+     would reformat /home/asura/.cache/claude-hfi/-mnt-e-align
+     -weather-cli/B/tests/test_cli.py
 
-● The 11.25 case is an exact midpoint between N and NNE —
-  Python's banker's rounding sends it to N. That's acceptable
-  behaviour for a display label; I'll fix the test to assert
-  on either side of the boundary rather than the ambiguous
-  midpoint.
+     Oh no! 💥 💔 💥
+     2 files would be reformatted, 7 files would be left
+     unchanged.
+
+● Bash(source venv/bin/activate && black --diff
+      src/api_client.py tests/test_cli.py 2>&1 | head -80)
+  ⎿  --- src/api_client.py      2026-04-21
+     12:32:08.098754+00:0
+     0
+     +++ src/api_client.py      2026-04-21
+     12:34:22.982998+00:0
+     … +45 lines (ctrl+o to expand)
+
+● Bash(source venv/bin/activate && black src/api_client.py
+      tests/test_cli.py 2>&1)
+  ⎿  reformatted src/api_client.py
+     reformatted tests/test_cli.py
+     … +2 lines (ctrl+o to expand)
+
+● Bash(source venv/bin/activate && python -c "
+      for f in ['src/api_client.py', 'tests/test_cli.py']:…)
+  ⎿  src/api_client.py CRLF: 393 LF-only: 0
+     tests/test_cli.py CRLF: 432 LF-only: 0
+     tests/test_api_client.py ...........................
+     … +8 lines (ctrl+o to expand)
+
+● Let me also run a quick sanity check on the argparse help
+  text.
+
+● Bash(source venv/bin/activate && python -m src.cli --help)
+  ⎿  usage: weather-cli [-h] [city]
+
+     Fetch and display the current weather for a city.
+     … +9 lines (ctrl+o to expand)
+
+● The help text reflects the optional argument. Let me do a
+  final review of the key files to confirm the shape.
+
+  Read 1 file (ctrl+o to expand)
+
+● All changes are in place. Summary of what changed:
+
+  src/exceptions.py — added GeolocationError(WeatherCLIError)
+  for IP-lookup failures.
+
+  src/api_client.py — added IP_GEOLOCATION_URL =
+  "https://ipapi.co/json/" constant, an optional
+  ip_geolocation_url constructor parameter for test injection,
+   and WeatherClient.detect_current_city() — an async method
+  that reuses the existing _request_client pool, wraps
+  httpx.RequestError (timeouts, connect errors), non-2xx,
+  invalid JSON, non-dict payloads, and missing city field all
+  as GeolocationError.
+
+  src/cli.py — city is now nargs="?" (optional). _fetch
+  returns a (Location, CurrentWeather, Optional[str]) triple
+  where the third element carries the auto-detected city name.
+   main catches GeolocationError separately and renders
+  _render_geolocation_error, which prints a panel explicitly
+  telling the user to run e.g. weather-cli Berlin. On success
+  with auto-detection, _render_auto_detected_notice prints ℹ
+  Auto-detected location: <city> (based on your IP address)
+  above the weather table.
+
+  tests/test_cli.py — added 7 tests: auto-detect happy path,
+  connect-error failure, read-timeout failure,
+  missing-city-field failure, explicit-city-skips-IP-lookup,
+  plus unit tests for the two new render helpers. Updated
+  test_build_parser_city_is_optional since the positional is
+  no longer required.
+
+  tests/test_api_client.py — added 9 tests covering
+  detect_current_city: success, whitespace-stripping,
+  ConnectError, ReadTimeout, HTTP 503, invalid JSON,
+  missing/empty city, and non-dict payload — all via
+  respx.mock, no live requests.
+
+  All 88 tests pass; flake8 and black are clean.
+
+❯ The detect_current_city method catches httpx.RequestError
+  as a single block for both timeouts and connection
+  failures. A timeout and a DNS resolution failure are
+  different problems requiring different user guidance. Split
+   that catch into httpx.TimeoutException and
+  httpx.RequestError so the error message distinguishes
+  between the geolocation service being slow versus
+  unreachable. Second, the original requirements state that
+  auto-detected lookups must proceed through the standard
+  caching pipeline. There is no test confirming that running
+  the CLI without a city argument actually writes a cache
+  entry. Add a test following the same pattern as
+  test_main_populates_cache_on_miss that invokes cli.main([])
+   with the IP geolocation mock active and asserts a JSON
+  file appears in the isolated cache directory.
+
+● Good catches. Let me split the exception handling and add
+  the cache test.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(src/api_client.py)
+  ⎿  Added 8 lines
+      218          async with self._request_client() as
+            client:
+      219              try:
+      220                  response: httpx.Response = a
+           wait client.get(self._ip_geolocation_url)
+      221 +            except httpx.TimeoutException as
+          + exc:
+      222 +                # Timeout is a subclass of R
+          +equestError, so this branch must
+      223 +                # come first. Distinguishing
+          + "slow" from "unreachable" gives
+      224 +                # the user a clearer hint ab
+          +out whether to retry or fall back
+      225 +                # to a manual argument.
+      226 +                raise GeolocationError(
+      227 +                    f"IP geolocation service
+          + timed out: {exc}"
+      228 +                ) from exc
+      229              except httpx.RequestError as exc
+           :
+      230                  raise GeolocationError(
+      231                      f"Could not reach IP geo
+           location service: {exc}"
+
+● Now update the existing timeout test to check for the
+  distinct message, and add the cache-population test for
+  auto-detected lookups.
+
+● Update(tests/test_api_client.py)
+  ⎿  Added 22 lines
+      461  @pytest.mark.asyncio
+      462  @respx.mock
+      463  async def test_detect_current_city_timeout_r
+           aises_geolocation_error() -> None:
+      464 +    """Timeouts surface a distinct message f
+          +rom generic connectivity errors."""
+      465      respx.get(IP_GEOLOCATION_URL).mock(
+      466          side_effect=httpx.ReadTimeout("read
+           timed out"),
+      467      )
+     ...
+      471              await client.detect_current_city
+           ()
+      472
+      473      assert isinstance(excinfo.value.__cause_
+           _, httpx.ReadTimeout)
+      474 +    # Timeout wording is specific ("timed ou
+          +t"), not the generic
+      475 +    # "could not reach" message used for DNS
+          +/connect errors.
+      476 +    message: str = str(excinfo.value)
+      477 +    assert "timed out" in message
+      478 +    assert "Could not reach" not in message
+      479
+      480
+      481  @pytest.mark.asyncio
+      482  @respx.mock
+      483 +async def test_detect_current_city_connect_t
+          +imeout_uses_timeout_wording() -> None:
+      484 +    """``ConnectTimeout`` is a ``TimeoutExce
+          +ption``, so the timeout path wins."""
+      485 +    respx.get(IP_GEOLOCATION_URL).mock(
+      486 +        side_effect=httpx.ConnectTimeout("co
+          +nnect timed out"),
+      487 +    )
+      488 +
+      489 +    async with WeatherClient() as client:
+      490 +        with pytest.raises(GeolocationError)
+          + as excinfo:
+      491 +            await client.detect_current_city
+          +()
+      492 +
+      493 +    assert "timed out" in str(excinfo.value)
+      494 +    assert isinstance(excinfo.value.__cause_
+          +_, httpx.ConnectTimeout)
+      495 +
+      496 +
+      497 +@pytest.mark.asyncio
+      498 +@respx.mock
+      499  async def test_detect_current_city_http_erro
+           r_raises_geolocation_error() -> None:
+      500      respx.get(IP_GEOLOCATION_URL).mock(
+      501          return_value=httpx.Response(503, tex
+           t="Service Unavailable"),
+
+● Also update the connect-error test to assert the wording is
+  the "unreachable" message (not "timed out"), to make the
+  distinction symmetric.
+
+● Update(tests/test_api_client.py)
+  ⎿  Added 4 lines, removed 1 line
+      446  @pytest.mark.asyncio
+      447  @respx.mock
+      448  async def test_detect_current_city_connect_e
+           rror_raises_geolocation_error() -> None:
+      449 +    """A DNS/connect failure surfaces the 'u
+          +nreachable' wording, not 'timed out'."""
+      450      respx.get(IP_GEOLOCATION_URL).mock(
+      451          side_effect=httpx.ConnectError("conn
+           ection refused"),
+      452      )
+     ...
+      455          with pytest.raises(GeolocationError)
+            as excinfo:
+      456              await client.detect_current_city
+           ()
+      457
+      457 -    assert "Could not reach IP geolocation s
+          -ervice" in str(excinfo.value)
+      458 +    message: str = str(excinfo.value)
+      459 +    assert "Could not reach IP geolocation s
+          +ervice" in message
+      460 +    assert "timed out" not in message
+      461      assert isinstance(excinfo.value.__cause_
+           _, httpx.ConnectError)
+      462
+      463
+
+● Now add the cache-population test for auto-detected lookups
+  in tests/test_cli.py.
 
 ● Update(tests/test_cli.py)
-  ⎿  Added 1 line, removed 1 line
-      239      [
-      240          (0.0, "N"),
-      241          (11.24, "N"),
-      242 -        (11.25, "NNE"),
-      242 +        (11.26, "NNE"),
-      243          (45.0, "NE"),
-      244          (90.0, "E"),
-      245          (180.0, "S"),
+  ⎿  Added 28 lines
+      357
+      358
+      359  @respx.mock
+      360 +def test_main_auto_detected_lookup_populates
+          +_cache(
+      361 +    isolated_cache: Path,
+      362 +    geocode_payload: Dict[str, Any],
+      363 +    weather_payload: Dict[str, Any],
+      364 +) -> None:
+      365 +    """Auto-detected lookups must also flow
+          +through the caching pipeline.
+      366 +
+      367 +    Mirrors :func:`test_main_populates_cache
+          +_on_miss` but invokes ``main``
+      368 +    without a city argument so the run goes
+          +through ``detect_current_city``
+      369 +    before reaching ``fetch_weather_for_city
+          +``.
+      370 +    """
+      371 +    respx.get(IP_GEOLOCATION_URL).mock(
+      372 +        return_value=httpx.Response(200, jso
+          +n={"city": "Berlin"})
+      373 +    )
+      374 +    respx.get(OPEN_METEO_GEOCODING_URL).mock
+          +(
+      375 +        return_value=httpx.Response(200, jso
+          +n=geocode_payload)
+      376 +    )
+      377 +    respx.get(OPEN_METEO_URL).mock(
+      378 +        return_value=httpx.Response(200, jso
+          +n=weather_payload)
+      379 +    )
+      380 +
+      381 +    assert not isolated_cache.exists()
+      382 +    assert cli.main([]) == 0
+      383 +    entries = list(isolated_cache.glob("*.js
+          +on"))
+      384 +    assert len(entries) == 1
+      385 +
+      386 +
+      387 +@respx.mock
+      388  def test_main_with_explicit_city_does_not_ca
+           ll_ip_geolocation(
+      389      geocode_payload: Dict[str, Any],
+      390      weather_payload: Dict[str, Any],
 
-● Bash(source venv/bin/activate && black src tests && flake8
-      src tests && echo "--- lint ok ---" && pytest tests/ -v)
+● Bash(source venv/bin/activate && pytest tests/ -v 2>&1 |
+      tail -30)
+  ⎿  tests/test_cli.py::test_main_populates_cache_on_miss
+      PASSED              [ 70%]
+     tests/test_cli.py::test_main_uses_cache_on_second_in
+     … +44 lines (ctrl+o to expand)
+
+● Bash(source venv/bin/activate && flake8 src tests && black
+      --check src tests 2>&1)
   ⎿  All done! ✨ 🍰 ✨
-     9 files left unchanged.
-     --- lint ok ---
-     … +126 lines (ctrl+o to expand)
+     9 files would be left unchanged.
 
-● All 72 tests pass, black/flake8 clean.
+● All 90 tests pass (up from 88); flake8 and black are clean.
 
-  Changes
+  Changes this round:
 
-  1. Compass cardinal on wind direction (src/cli.py)
-  - Added _COMPASS_POINTS (16-point rose) and
-  _compass_point(degrees: float) -> str which normalises the
-  bearing into [0, 360) and maps it to N/NNE/…/NNW.
-  - Wind-direction row now renders as e.g. 292° WNW instead of
-   292°.
+  src/api_client.py — detect_current_city now catches
+  httpx.TimeoutException first (with the message "IP
+  geolocation service timed out: …") and httpx.RequestError
+  second ("Could not reach IP geolocation service: …"). A
+  short comment notes the subclass-ordering requirement and
+  the reason for splitting.
 
-  2. Timeout / connection error handling — verified
-  No code change was needed. The path is:
-  - httpx.ConnectError, httpx.ConnectTimeout,
-  httpx.ReadTimeout, httpx.TimeoutException are all subclasses
-   of httpx.RequestError.
-  - WeatherClient._get_json (src/api_client.py:250-253)
-  catches httpx.RequestError and re-raises as APIError.
-  - cli.main catches WeatherCLIError (base of APIError) and
-  renders the red error panel to stderr, returning exit code
-  1.
+  tests/test_api_client.py — the existing timeout test now
+  asserts the wording is "timed out" (and explicitly not
+  "Could not reach"); the existing connect-error test asserts
+  the inverse. Added test_detect_current_city_connect_timeout_
+  uses_timeout_wording to cover ConnectTimeout, which — being
+  a TimeoutException — must hit the timeout branch rather than
+   the generic unreachable one.
 
-  Added two tests to lock this in:
-  - test_main_timeout_renders_error_and_returns_one — mocks
-  httpx.ReadTimeout, asserts a formatted "Weather service
-  error" panel on stderr and no Traceback.
-  - test_httpx_network_exceptions_are_request_errors — guards
-  the issubclass assumption so a future httpx release can't
-  silently break this.
+  tests/test_cli.py — added
+  test_main_auto_detected_lookup_populates_cache, mirroring
+  test_main_populates_cache_on_miss: mocks IP + geocoding +
+  weather, invokes cli.main([]), and asserts one *.json
+  appears in the isolated cache dir.
 
-  3. Tests (tests/test_cli.py)
-  - New parametrised test_compass_point covering cardinals,
-  intercardinals, the 292° → WNW case, wrap-around (360°,
-  405°, −90°), and the N/NNE boundary.
-  - test_render_weather_contains_all_metrics now asserts "292°
-   WNW" appears in the rendered table.
-
-✶ Elucidating… (2m 51s · ↓ 3.6k tokens)
+✽ Noodling… (1m 14s · ↓ 4.5k tokens)
   ⎿  Tip: Use /btw to ask a quick side question without
      interrupting Claude's current work
 asura@DESKTOP-IVGG5QO:~/.cache/claude-hfi/-mnt-e-align-weather
